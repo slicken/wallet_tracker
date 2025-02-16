@@ -1,5 +1,5 @@
 walletTracker
-tokendata.json
+*.json
 *.bak
 wssTracker
 rpcTracker

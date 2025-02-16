@@ -1,0 +1,12 @@
+{
+  "CustomRPC": "https://api.mainnet-beta.solana.com",
+  "UpdateInterval": "30s",
+  "MaxRetries": 5,
+  "Wallets": [
+    "8cui5n3SUTf6CSgkLhSPY2VNhMiWwzpNBtAH5R7rUPhB"
+  ],
+  "MinimumBalance": 0,
+  "MinimumValueUSD": 0.0,
+  "IncludeTokenList": [],
+  "ExcludeTokenList": []
+}

@@ -1,4 +1,4 @@
-# solana wallet tacker
+# solana wallet tacker !!UNDER DEVLOPEMENT!!
 
 A Solana wallet tracker that scan wallets and print token statistics.
 Filter results with Include, Exclude lists, token Balance and or USD Value.
@@ -51,7 +51,7 @@ $ ./walletTracker --config=my_config.json --price=true
 2025/02/16 09:49:30 Scanning wallet balances every 30s...
 ```
 
-### App settings in your config.json file
+### Create your app configuration file (required)
 ```json
 {
   "CustomRPC": "https://api.mainnet-beta.solana.com",

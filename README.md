@@ -51,7 +51,6 @@ $ ./walletTracker --config=my_config.json --sol=false
 2025/02/16 09:49:30 Wallet> AZzYdTu9moqQsYeV4e1mzWLEdQc15BTuRWivjmPMY2S2 (4 tokens) in 1s
 2025/02/16 09:49:30 Jail Milei     -33562        -54$ 6LYdA9RXGfGyg8enWE8pnYoCGgk7NtYr4dmMSqfxkdhc <REMOVED>
 2025/02/16 09:49:30 TRUMP              +3        +54$ 6p6xgHyF7AeE6TZkSmFsko444wqoP15icUSqi2jfGiPN <NEW>
-2025/02/16 09:49:30 Scanning wallet balances every 30s...
 ```
 
 ### Create your app configuration file (required)

@@ -45,7 +45,7 @@ $ ./walletTracker --config=my_config.json --price=true
 2025/02/16 09:49:00 SPX              1500       1123$ J3NKxxXZcnNiMjKw9hYb2K4LUxgwB6t1FtPtQVsv3KFr
 2025/02/16 09:49:00 Scanning wallet balances every 30s...
 2025/02/16 09:49:30 Wallet> AZzYdTu9moqQsYeV4e1mzWLEdQc15BTuRWivjmPMY2S2 (4 tokens) fetched in 1s
-2025/02/16 09:49:30 Jail Milei     -33562        -54$ 6LYdA9RXGfGyg8enWE8pnYoCGgk7NtYr4dmMSqfxkdhc <REMOVE>
+2025/02/16 09:49:30 Jail Milei     -33562        -54$ 6LYdA9RXGfGyg8enWE8pnYoCGgk7NtYr4dmMSqfxkdhc <REMOVED>
 2025/02/16 09:49:30 TRUMP              +3        +54$ 6p6xgHyF7AeE6TZkSmFsko444wqoP15icUSqi2jfGiPN <NEW>
 2025/02/16 09:49:30 Scanning wallet balances every 30s...
 ```
@@ -54,13 +54,13 @@ $ ./walletTracker --config=my_config.json --price=true
 ```json
 {
   "CustomRPC": "https://api.mainnet-beta.solana.com",
-  "UpdateInterval": "30s",
+  "UpdateInterval": "2m",
   "MaxRetries": 5,
   "Wallets": [
     "AZzYdTu9moqQsYeV4e1mzWLEdQc15BTuRWivjmPMY2S2"
   ],
-  "MinimumBalance": 0,
-  "MinimumValueUSD": 0.0,
+  "MinimumBalance": 1,
+  "MinimumValueUSD": 99.5,
   "IncludeTokenList": [],
   "ExcludeTokenList": []
 }

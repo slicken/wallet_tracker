@@ -311,7 +311,7 @@ NEXT:
 
 	// save walletMap last update time
 	walletMap[walletAddr].LastUpdate = time.Now()
-	log.Printf("Address %s %s(%d tokens) in %v.", walletAddr, walletMap[walletAddr].Name, len(walletMap[walletAddr].Tokens), time.Since(start).Truncate(time.Second))
+	log.Printf("Wallet> %s %s(%d tokens) in %v.", walletAddr, walletMap[walletAddr].Name, len(walletMap[walletAddr].Tokens), time.Since(start).Truncate(time.Second))
 
 	return nil
 }

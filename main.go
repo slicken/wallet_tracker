@@ -8,6 +8,8 @@ import (
 	"math"
 	"os"
 	"os/signal"
+	"runtime"
+	"sort"
 	"strings"
 	"sync"
 	"syscall"
@@ -21,16 +23,16 @@ import (
 
 type Wallet struct {
 	Address    string               // Wallet address
-	PK         solana.PublicKey     // Solana PublicKey format
+	Name       string               // Wallet name
 	Tokens     map[string]TokenInfo // Map of token addresses to TokenInfo
 	LastUpdate time.Time            // Last update time
 }
 
 var (
-	walletMap  = make(map[string]*Wallet) // Map of wallet addresses to Wallet struct
-	fetchPrice = false
-	debug      = false
-	mu         sync.Mutex
+	walletMap = make(map[string]*Wallet) // Map of wallet addresses to Wallet struct
+	debug     = false
+	showsol   = false
+	mu        sync.Mutex
 )
 
 func main() {
@@ -40,27 +42,24 @@ func main() {
 
 	// Start a goroutine to handle the signal
 	go func() {
-		<-sigChan
-		fmt.Printf("\nExiting...\n")
+		fmt.Printf("signal %v...\n", <-sigChan)
 
 		// Save token data
 		if err := SaveTokenData(); err != nil {
-			log.Fatalf("Failed to save jupiterToken data : %v", err)
+			log.Fatalf("Failed to save token store: %v", err)
 		}
 		os.Exit(0)
 	}()
 
 	// Application flags
 	configFile := flag.String("config", "config.json", "Path to configuration file")
+	flag.BoolVar(&showsol, "sol", false, "Include SOL balance")
 	flag.BoolVar(&debug, "debug", false, "Debug mode")
-	flag.BoolVar(&fetchPrice, "price", false, "Fetch prices (needed to calculate USD value)")
 	flag.Parse()
 
 	if debug {
-		log.Println("Debug mode is enabled")
+		log.Println("Debug mode is 'enabled'.")
 	}
-
-	log.Printf("Loading app settings from '%v'...\n", *configFile)
 
 	// Load configuration
 	err := loadConfig(*configFile)
@@ -68,38 +67,56 @@ func main() {
 		log.Fatalf("Failed to load app settings: %v", err)
 	}
 
+	log.Printf("Loaded app settings from '%v'.\n", *configFile)
+
+	// Initialize RPC client
+	c := rpc.NewWithCustomRPCClient(rpc.NewWithLimiter(config.NetworkURL, 4, 1))
+
 	// Initialize wallet map
 	for _, addr := range config.Wallets {
-		pk, err := solana.PublicKeyFromBase58(addr)
+		pubKey, err := solana.PublicKeyFromBase58(addr)
 		if err != nil {
-			log.Fatalf("Failed to convert wallet address %s to PublicKey: %v", addr, err)
+			log.Fatalf("Failed to convert wallet address to PublicKey: %v", err)
+			os.Exit(1)
 		}
+		// Get wallet name is any
+		walletname, _ := GetWalletName(pubKey, c)
 
 		walletMap[addr] = &Wallet{
 			Address: addr,
-			PK:      pk,
+			Name:    walletname,
 			Tokens:  make(map[string]TokenInfo),
 		}
 	}
 
 	// Load token data
 	if err := LoadTokenData(); err != nil {
-		log.Fatalf("Failed to load jupiterTokenData: %v", err)
+		log.Fatalf("Failed to load token data: %v", err)
 	}
 
-	if fetchPrice {
-		log.Println("Fetching prices may take some time for wallet with many tokens...")
-	}
+	log.Println("Initalizing wallets and fetching token metadata.")
+	log.Println("This process may take longer for wallets with a large number of tokens...")
 
 	// Fetch initial balances
-	c := rpc.NewWithCustomRPCClient(rpc.NewWithLimiter(config.NetworkURL, 4, 1))
 	for _, addr := range config.Wallets {
-		updateTokens(c, addr)
+		updateWalletBalanceAndPrices(c, addr)
 	}
 
-	// Print initial balances
+	// Print initial balances (sorted by USDValue in descending order)
 	for _, addr := range config.Wallets {
+		tokenSlice := make([]TokenInfo, 0, len(walletMap[addr].Tokens))
 		for _, tokenInfo := range walletMap[addr].Tokens {
+			tokenSlice = append(tokenSlice, tokenInfo)
+		}
+		sort.Slice(tokenSlice, func(i, j int) bool {
+			return tokenSlice[i].USDValue > tokenSlice[j].USDValue
+		})
+		log.Printf("%-10s %10s %10s$ %s\n", "SYMBOL", "BALANCE", "USD VALUE", "TOKEN MINT")
+		for i, tokenInfo := range tokenSlice {
+			if i >= 10 { // Limit to 10 tokens
+				log.Printf("... and %d more tokens ...\n", len(walletMap[addr].Tokens)-10)
+				break
+			}
 			log.Printf("%-10s %10.f %10.f$ %s\n", tokenInfo.Symbol, tokenInfo.Balance, tokenInfo.USDValue, tokenInfo.Address)
 		}
 	}
@@ -121,7 +138,7 @@ func main() {
 			}
 
 			// Update the wallet balance
-			err := updateTokens(c, addr)
+			err := updateWalletBalanceAndPrices(c, addr)
 			if err != nil {
 				log.Printf("Failed to update wallet balance for %s: %v", addr, err)
 				continue
@@ -135,7 +152,7 @@ func main() {
 					balanceDiff := currentToken.Balance - previousToken.Balance
 					if math.Abs(balanceDiff) >= 0.001 {
 						usdValueDiff := currentToken.USDValue - previousToken.USDValue
-						log.Printf("%-10s %10.f (%+10.f) %10.f (%+10.f$) %s\n", currentToken.Symbol, currentToken.Balance, balanceDiff, currentToken.USDValue, usdValueDiff, mint)
+						log.Printf("%-10s %+10.f %+10.f$ %s <CHANGE>\n", currentToken.Symbol, balanceDiff, usdValueDiff, mint)
 					}
 				}
 			}
@@ -150,7 +167,7 @@ func main() {
 	}
 }
 
-func updateTokens(c *rpc.Client, walletAddr string) error {
+func updateWalletBalanceAndPrices(c *rpc.Client, walletAddr string) error {
 	// pubKey for wallet address
 	pubKey, err := solana.PublicKeyFromBase58(walletAddr)
 	if err != nil {
@@ -158,7 +175,51 @@ func updateTokens(c *rpc.Client, walletAddr string) error {
 	}
 
 	// main tokens map
-	tokensMap := make(map[string]TokenInfo)
+	var mints []string
+	tokenMap := make(map[string]TokenInfo)
+
+	if showsol {
+		// Show SOL balance
+		solBalance, err := c.GetBalance(
+			context.Background(),
+			pubKey,
+			rpc.CommitmentConfirmed,
+		)
+		if err != nil {
+			if debug {
+				log.Printf("failed to fetch SOL balance: %v\n", err)
+			}
+			goto NEXT
+		}
+		// Convert SOL balance from lamports to SOL (1 SOL = 10^9 lamports)
+		solBalanceInSOL := float64(solBalance.Value) / 1e9
+
+		// Fetch SOL price using Jupiter API
+		solPrice, err := fetchTokenPriceJupiter("So11111111111111111111111111111111111111112") // SOL mint address
+		if err != nil {
+			if debug {
+				log.Printf("failed to fetch SOL price: %v\n", err)
+			}
+			goto NEXT
+		}
+
+		// Calculate SOL USD value
+		solUSDValue := solBalanceInSOL * solPrice["So11111111111111111111111111111111111111112"]
+
+		// Add SOL to the wallet map
+		tokenMap["So11111111111111111111111111111111111111112"] = TokenInfo{
+			Address:  "So11111111111111111111111111111111111111112",
+			Symbol:   "SOL",
+			Name:     "Solana",
+			Balance:  solBalanceInSOL,
+			USDValue: solUSDValue,
+		}
+		if debug {
+			log.Println("Fetched SOL balance")
+		}
+	}
+
+NEXT:
 
 	start := time.Now()
 	// Fetch token accounts for both Token and Token-2022 programs
@@ -170,6 +231,10 @@ func updateTokens(c *rpc.Client, walletAddr string) error {
 			continue
 		}
 
+		if debug {
+			log.Printf("Fetched %d token accounts for program %s", len(ret), program)
+		}
+
 		// merge tokens to the main map
 		for mint, tokenProgram := range ret {
 			if _, exists := skipTokens[mint]; exists {
@@ -178,8 +243,8 @@ func updateTokens(c *rpc.Client, walletAddr string) error {
 				}
 				continue
 			}
-			// fetch new token metadata
-			tokenInfo, err := fetchTokenMetadata(mint, fetchPrice)
+			// get token metadata
+			tokenInfo, err := getTokenInfo(mint)
 			if err != nil {
 				if debug {
 					log.Printf("Failed to fetch token metadata for %s: %v", mint, err)
@@ -187,56 +252,66 @@ func updateTokens(c *rpc.Client, walletAddr string) error {
 				skipTokens[mint] = true
 				continue
 			}
-			if debug {
-				fmt.Println(">", tokenInfo.Name, tokenInfo.Price)
+
+			// Calculate balance
+			balance := tokenProgram.Balance / math.Pow10(tokenInfo.Decimals)
+			tokenMap[mint] = TokenInfo{
+				Address: mint,
+				Balance: balance,
+				Symbol:  tokenInfo.Symbol,
+				Name:    tokenInfo.Name,
+				Price:   tokenInfo.Price,
 			}
 
-			// Calculate actual balance
-			balance := tokenProgram.Balance / math.Pow10(tokenInfo.Decimals)
-			if tokenInfo.Price <= 0 {
-				// If we dont have price, we will only filter by balance
-				if balance >= config.MinimumBalance {
-					tokensMap[mint] = TokenInfo{
-						Address: mint,
-						Balance: balance,
-						Symbol:  tokenInfo.Symbol,
-						Name:    tokenInfo.Name,
-						Price:   tokenInfo.Price,
-					}
-				}
-			} else {
-				// If we have price we can also filter by USD value
-				usdValue := balance * tokenInfo.Price
-				if usdValue >= config.MinimumValue && balance >= config.MinimumBalance {
-					tokensMap[mint] = TokenInfo{
-						Address:  mint,
-						Balance:  balance,
-						Symbol:   tokenInfo.Symbol,
-						Name:     tokenInfo.Name,
-						Price:    tokenInfo.Price,
-						USDValue: usdValue,
-					}
-				}
-			}
+			// add to our mints list for price fetching
+			mints = append(mints, mint)
+		}
+	}
+
+	// get token prices
+	priceMap, err := getTokenPrice(mints...)
+	if err != nil {
+		log.Printf("Failed to get token prices: %v", err)
+	}
+
+	if debug {
+		log.Printf("Fetched prices for %d tokens.\n", len(priceMap))
+	}
+
+	// Range over toeknMap and preform filters
+	for mint, price := range priceMap {
+		token, exists := tokenMap[mint]
+		if !exists {
+			continue
+		}
+
+		// Calculate actual balance
+		usdValue := token.Balance * price
+		if usdValue >= config.MinimumValue && token.Balance >= config.MinimumBalance {
+			token.Price = price
+			token.USDValue = usdValue
+			tokenMap[mint] = token
+		} else {
+			delete(tokenMap, mint)
 		}
 	}
 
 	// remove tokens from walletMap that we dont have in new tokensMap
 	for mint := range walletMap[walletAddr].Tokens {
 		// Check for removed tokens and merge new tokens
-		if _, exist := tokensMap[mint]; !exist {
+		if _, exist := tokenMap[mint]; !exist {
 			delete(walletMap[walletAddr].Tokens, mint)
 		}
 	}
 
 	// copy new tokensMap to main walletMap
-	for mint, token := range tokensMap {
+	for mint, token := range tokenMap {
 		walletMap[walletAddr].Tokens[mint] = token
 	}
 
+	// save walletMap last update time
 	walletMap[walletAddr].LastUpdate = time.Now()
-	// log.Printf("Address %s (%d tokens) fetched in %.2f seconds", walletAddr, len(walletMap[walletAddr].Tokens), time.Now().Sub(start).Seconds())
-	log.Printf("Address %s (%d tokens) fetched in %v", walletAddr, len(walletMap[walletAddr].Tokens), time.Since(start).Truncate(time.Second))
+	log.Printf("Address %s %s(%d tokens) in %v.", walletAddr, walletMap[walletAddr].Name, len(walletMap[walletAddr].Tokens), time.Since(start).Truncate(time.Second))
 
 	return nil
 }
@@ -311,6 +386,36 @@ func includeTokenFilter(mint string) bool {
 	return true
 }
 
+// GetWalletName resolves a wallet address to its .sol name (if any).
+func GetWalletName(walletAddress solana.PublicKey, client *rpc.Client) (string, error) {
+	// Derive the SNS account key for the wallet address
+	snsAccount, _, err := solana.FindProgramAddress(
+		[][]byte{
+			[]byte("name"),
+			[]byte(walletAddress.String()),
+		},
+		solana.MustPublicKeyFromBase58("namesLPneVptA9Z5rqUDD9tMTWEJwofgaYwp8cawRkX"),
+	)
+	if err != nil {
+		return "", fmt.Errorf("failed to derive SNS account: %v", err)
+	}
+
+	// Fetch the SNS account data
+	account, err := client.GetAccountInfo(context.TODO(), snsAccount)
+	if err != nil {
+		return "", fmt.Errorf("failed to fetch SNS account: %v", err)
+	}
+
+	// Check if the account exists and has data
+	if account == nil || account.Value == nil || len(account.Value.Data.GetBinary()) == 0 {
+		return "", nil // No .sol name found
+	}
+
+	// Decode the SNS account data to get the .sol name
+	name := string(account.Value.Data.GetBinary())
+	return name, nil
+}
+
 // retryRPC retries an RPC call with exponential backoff on rate limit errors
 func retryRPC(fn func() error) error {
 	delay := 5 * time.Second
@@ -322,9 +427,12 @@ func retryRPC(fn func() error) error {
 		}
 
 		// Check if the error is a rate limit error (HTTP 429)
-		if strings.Contains(err.Error(), "too many requests") || strings.Contains(err.Error(), "429") {
+		if strings.Contains(err.Error(), "many requests") || strings.Contains(err.Error(), "429") {
 			if debug {
-				log.Printf("Rate limit hit. Retrying in %v... (attempt %d/%d)", delay, i+1, config.MaxRetries)
+				// Log the function name or HTTP request details
+				pc, _, _, _ := runtime.Caller(1) // Get the caller's function name
+				funcName := runtime.FuncForPC(pc).Name()
+				log.Printf("Rate limit hit [%s]. Retrying in %v... (attempt %d/%d)", funcName, delay, i+1, config.MaxRetries)
 			}
 			time.Sleep(delay)
 			delay *= 2
@@ -334,7 +442,7 @@ func retryRPC(fn func() error) error {
 			continue
 		}
 
-		// If it's not a rate limit error, return the error
+		// If not a rate limit error, return it
 		return err
 	}
 

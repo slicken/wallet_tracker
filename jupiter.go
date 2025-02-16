@@ -36,8 +36,65 @@ var (
 	skipTokens = make(map[string]bool)
 )
 
-// Fetches token metadata, info and price from Jupiter.
-func fetchTokenMetadata(mint string, fetchPrice bool) (TokenInfo, error) {
+// getTokenInfo fetches token metadata from Jupiter and caches it.
+func getTokenInfo(mint string) (TokenInfo, error) {
+	// Check if the token info is already cached
+	if cachedTokenInfo, exists := tokenData[mint]; exists {
+		return cachedTokenInfo, nil
+	}
+
+	if debug {
+		log.Printf("fetching token metadata for %s\n.", mint)
+	}
+
+	// If not cached, fetch token info from Jupiter
+	tokenInfo, err := fetchTokenInfoJupiter(mint)
+	if err != nil {
+		return TokenInfo{}, err
+	}
+
+	// Cache price
+	tokenData[mint] = tokenInfo
+	return tokenInfo, err
+}
+
+// Gets any number of token prices from Jupiter.
+func getTokenPrice(mints ...string) (map[string]float64, error) {
+	prices := make(map[string]float64) // Final map to store all prices
+	var batch []string
+
+	for i, mint := range mints {
+		batch = append(batch, mint)
+		// When we have 100 mints or it's the last mint
+		if (i+1)%100 == 0 || i == len(mints)-1 {
+			// Join the batch into a single string
+			batchStr := strings.Join(batch, ",")
+
+			// Fetch prices for the current batch
+			priceMap, err := fetchTokenPriceJupiter(batchStr)
+			if err != nil {
+				log.Printf("Failed to fetch prices for batch %d: %v", i/100, err)
+			}
+			// Merge fetched prices into the final prices map
+			for mintID, price := range priceMap {
+				prices[mintID] = price
+			}
+
+			// Reset the batch
+			batch = nil
+		}
+	}
+
+	// Return error if pricemap is empty
+	if len(prices) == 0 {
+		return nil, fmt.Errorf("pricemap is empty")
+	}
+
+	return prices, nil
+}
+
+// Fetches token metadata and price from Jupiter.
+func fetchTokenMetadataAndPrice(mint string, fetchPrice bool) (TokenInfo, error) {
 	// Check if the token info is already cached
 	if cachedTokenInfo, exists := tokenData[mint]; exists && cachedTokenInfo.Name != "" {
 		if !fetchPrice {
@@ -53,7 +110,7 @@ func fetchTokenMetadata(mint string, fetchPrice bool) (TokenInfo, error) {
 		}
 
 		// Update the cached token info with the new price
-		cachedTokenInfo.Price = usdPrice
+		cachedTokenInfo.Price = usdPrice[mint]
 		return cachedTokenInfo, nil
 	}
 
@@ -76,11 +133,12 @@ func fetchTokenMetadata(mint string, fetchPrice bool) (TokenInfo, error) {
 	}
 
 	// Cache price
-	tokenInfo.Price = usdPrice
+	tokenInfo.Price = usdPrice[mint]
 	tokenData[mint] = tokenInfo
 	return tokenInfo, err
 }
 
+// Fetches token info from Jupiter exchange
 func fetchTokenInfoJupiter(mint string) (TokenInfo, error) {
 	var res *http.Response
 	var err error
@@ -123,16 +181,11 @@ func fetchTokenInfoJupiter(mint string) (TokenInfo, error) {
 		return TokenInfo{}, fmt.Errorf("failed to unmarshal JSON response: %v", err)
 	}
 
-	// Shorten long names
-	if len(tokenInfo.Name) > 10 {
-		tokenInfo.Name = fmt.Sprintf("%s..", tokenInfo.Name[:10])
-	}
-
 	return tokenInfo, nil
 }
 
-// Fetches token price from Jupiter exchange
-func fetchTokenPriceJupiter(mint string) (float64, error) {
+// Fetches token prices from Jupiter exchange
+func fetchTokenPriceJupiter(mint string) (map[string]float64, error) {
 	var res *http.Response
 	var err error
 
@@ -149,19 +202,14 @@ func fetchTokenPriceJupiter(mint string) (float64, error) {
 		return nil
 	})
 	if err != nil {
-		return 0, err // Return the original error
+		return nil, err // Return the original error
 	}
 	defer res.Body.Close()
 
 	// Read the response body
 	body, err := io.ReadAll(res.Body)
 	if err != nil {
-		return 0, fmt.Errorf("failed to read response body: %v", err)
-	}
-
-	// Check if the response contains "null" for the mint
-	if strings.Contains(string(body), `"`+mint+`":null`) {
-		return 0, fmt.Errorf("price null")
+		return nil, fmt.Errorf("failed to read response body: %v", err)
 	}
 
 	// Unmarshal the JSON response
@@ -171,12 +219,26 @@ func fetchTokenPriceJupiter(mint string) (float64, error) {
 		} `json:"data"`
 	}
 	if err := json.Unmarshal(body, &resp); err != nil {
-		return 0, fmt.Errorf("failed to unmarshal JSON response: %v", err)
+		return nil, fmt.Errorf("failed to unmarshal JSON response: %v", err)
 	}
 
-	price, _ := strconv.ParseFloat(resp.Data[mint].Price, 64)
+	// Create a map to store the prices
+	prices := make(map[string]float64)
 
-	return price, nil
+	// Iterate through the response data and populate the map
+	for mintID, data := range resp.Data {
+		// Skip if the price is null or empty
+		if data.Price == "" || data.Price == "null" {
+			continue
+		}
+		price, err := strconv.ParseFloat(data.Price, 64)
+		if err != nil {
+			continue
+		}
+		prices[mintID] = price
+	}
+
+	return prices, nil
 }
 
 // Saves token data to a file
@@ -236,6 +298,6 @@ func LoadTokenData() error {
 		skipTokens = store.SkipTokens
 	}
 
-	log.Printf("Loaded token store from '%s'\n", FILE_TOKEN_DATA)
+	log.Printf("Loaded token store from '%s'.\n", FILE_TOKEN_DATA)
 	return nil
 }

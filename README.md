@@ -34,7 +34,6 @@ Usage of ./walletTracker:
 ```
 ```bash
 $ ./walletTracker --config=my_config.json --price=true
-./walletTracker --config=config.new.json --price=true
 2025/02/16 09:48:59 Loaded app settings from 'config.new.json'
 2025/02/16 09:48:59 Loaded token store from 'token_data.json'
 2025/02/16 09:48:59 Fetching prices may take some time for wallet with many tokens...

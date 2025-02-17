@@ -30,6 +30,8 @@ $ ./walletTracker --help
 Usage of ./walletTracker:
   -config string
     	Path to configuration file (default "config.json")
+  -signer
+        Wallet owner must be signer of token changes
   -sol
     	Include SOL balance
   -debug
@@ -42,15 +44,16 @@ $ ./walletTracker --config=my_config.json --sol=false
 2025/02/16 09:48:59 Initalizing wallets and fetching token metadata.
 2025/02/16 09:48:59 This process may take longer for wallets with a large number of tokens...
 2025/02/16 09:49:00 Wallet> AZzYdTu9moqQsYeV4e1mzWLEdQc15BTuRWivjmPMY2S2 (5 tokens) fetched in 1s
-2025/02/16 09:49:00 Jail Milei      33562         54$ 6LYdA9RXGfGyg8enWE8pnYoCGgk7NtYr4dmMSqfxkdhc
 2025/02/16 09:49:00 JupSOL             92      19382$ jupSoLaHXQiZZTSfEWMTRRgpnyFm8f6sZdosWBjx93v
+2025/02/16 09:49:00 SPX              1500       1123$ J3NKxxXZcnNiMjKw9hYb2K4LUxgwB6t1FtPtQVsv3KFr
+2025/02/16 09:49:00 Jail Milei      33562         54$ 6LYdA9RXGfGyg8enWE8pnYoCGgk7NtYr4dmMSqfxkdhc
 2025/02/16 09:49:00 USD C              13         13$ 8GsjjKTBXff1deWBCWMWMVDiq2btRWeGxo38k5UHAX92
 2025/02/16 09:49:00 Sorkincoin        450          7$ CHfSidPhzUEmu2ac8MHazDh9EEXYHezNxCHZ6YMtMMFZ
-2025/02/16 09:49:00 SPX              1500       1123$ J3NKxxXZcnNiMjKw9hYb2K4LUxgwB6t1FtPtQVsv3KFr
 2025/02/16 09:49:00 Scanning wallet balances every 30s...
 2025/02/16 09:49:30 Wallet> AZzYdTu9moqQsYeV4e1mzWLEdQc15BTuRWivjmPMY2S2 (4 tokens) in 1s
 2025/02/16 09:49:30 Jail Milei     -33562        -54$ 6LYdA9RXGfGyg8enWE8pnYoCGgk7NtYr4dmMSqfxkdhc <REMOVED>
 2025/02/16 09:49:30 TRUMP              +3        +54$ 6p6xgHyF7AeE6TZkSmFsko444wqoP15icUSqi2jfGiPN <NEW>
+2025/02/16 09:49:30 TRUMP transation WAS signed by wallet!
 ```
 
 ### Create your app configuration file (required)
@@ -63,7 +66,7 @@ $ ./walletTracker --config=my_config.json --sol=false
     "AZzYdTu9moqQsYeV4e1mzWLEdQc15BTuRWivjmPMY2S2"
   ],
   "MinimumBalance": 1,
-  "MinimumValueUSD": 99.5,
+  "MinimumValueUSD": 0,
   "IncludeTokenList": [],
   "ExcludeTokenList": []
 }

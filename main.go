@@ -50,7 +50,7 @@ func main() {
 	  --config <file>            Path to configuration file
 
 	Optional:
-	  --signer <true>            Wallet owner must be signer of token changes (default: false)
+	  --signer <true>            Shows is balance change was made by wallet owner (default: true)
 	  --sol <true>               Include SOL balance (default: false)
 	  --debug <false>            Debug mode (default: false)
 	  -h,--help                  Show this help message
@@ -202,8 +202,8 @@ func main() {
 						continue
 					}
 
-					if isOwner {
-						log.Printf("%s transation WAS signed by wallet!", symbol)
+					if !isOwner {
+						log.Printf("<%s..> %s transation WAS NOT signed by wallet!", addr[:4], symbol)
 
 						// copytrade? make transaction
 					}

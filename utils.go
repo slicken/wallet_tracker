@@ -1,0 +1,120 @@
+package main
+
+import (
+	"encoding/json"
+	"fmt"
+	"log"
+	"os"
+	"runtime"
+	"strings"
+	"time"
+)
+
+const FILE_TOKEN_DATA = "token_data.json"
+
+type TokenStore struct {
+	TokenData  map[string]TokenInfo `json:"tokenData"`
+	SkipTokens map[string]bool      `json:"skipTokens"`
+}
+
+type Tokens map[string]TokenInfo
+
+var (
+	// token data
+	tokenData  = make(map[string]TokenInfo)
+	skipTokens = make(map[string]bool)
+)
+
+// Saves token data to a file
+func SaveTokenData() error {
+	// Create the merged data structure
+	store := TokenStore{
+		TokenData:  tokenData,
+		SkipTokens: skipTokens,
+	}
+
+	// Convert the struct to JSON with indentation
+	data, err := json.MarshalIndent(store, "", "  ") // Indent with 2 spaces
+	if err != nil {
+		return fmt.Errorf("failed to marshal token store: %v", err)
+	}
+
+	// Write the JSON data to the file
+	err = os.WriteFile(FILE_TOKEN_DATA, data, 0644)
+	if err != nil {
+		return fmt.Errorf("failed to write token store to file: %v", err)
+	}
+
+	log.Println("Token store saved successfully!")
+	return nil
+}
+
+// Loads token data from file
+func LoadTokenData() error {
+	// Initialize tokenData and skipTokens
+	tokenData = make(map[string]TokenInfo)
+	skipTokens = make(map[string]bool)
+
+	// Check if the file exists
+	if _, err := os.Stat(FILE_TOKEN_DATA); os.IsNotExist(err) {
+		log.Printf("Warning: %s not found. Initialized empty token store.\n", FILE_TOKEN_DATA)
+		return nil
+	}
+
+	// Read the file content
+	data, err := os.ReadFile(FILE_TOKEN_DATA)
+	if err != nil {
+		return fmt.Errorf("failed to read token store file: %v", err)
+	}
+
+	// Decode the JSON data into the TokenStore struct
+	var store TokenStore
+	err = json.Unmarshal(data, &store)
+	if err != nil {
+		return fmt.Errorf("failed to unmarshal token store: %v", err)
+	}
+
+	// Populate tokenData and skipTokens
+	if store.TokenData != nil {
+		tokenData = store.TokenData
+	}
+	if store.SkipTokens != nil {
+		skipTokens = store.SkipTokens
+	}
+
+	log.Printf("Loaded token store from '%s'.\n", FILE_TOKEN_DATA)
+	return nil
+}
+
+// retryRPC retries an RPC call with exponential backoff on rate limit errors
+func retryRPC(fn func() error) error {
+	delay := 5 * time.Second
+
+	var err error
+	for i := 0; i < config.MaxRetries; i++ {
+		if err = fn(); err == nil {
+			return nil // Success, exit
+		}
+
+		// Check if the error is a rate limit error (HTTP 429)
+		if strings.Contains(err.Error(), "many requests") || strings.Contains(err.Error(), "429") {
+			if debug {
+				// Log the function name or HTTP request details
+				pc, _, _, _ := runtime.Caller(1) // Get the caller's function name
+				funcName := runtime.FuncForPC(pc).Name()
+				log.Printf("Rate limit hit [%s]. Retrying in %v... (attempt %d/%d)", funcName, delay, i+1, config.MaxRetries)
+			}
+			time.Sleep(delay)
+			delay *= 2
+			if delay > 15*time.Second {
+				delay = 15 * time.Second
+			}
+			continue
+		}
+
+		// If not a rate limit error, return it
+		return err
+	}
+
+	return err
+}

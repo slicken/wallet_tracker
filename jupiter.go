@@ -6,12 +6,9 @@ import (
 	"io"
 	"log"
 	"net/http"
-	"os"
 	"strconv"
 	"strings"
 )
-
-const FILE_TOKEN_DATA = "token_data.json"
 
 type TokenInfo struct {
 	Address  string  `json:"address,omitempty"`   // Token mint address
@@ -23,28 +20,11 @@ type TokenInfo struct {
 	Price    float64 `json:"price,omitempty"`     // Token price
 }
 
-type TokenStore struct {
-	TokenData  map[string]TokenInfo `json:"tokenData"`
-	SkipTokens map[string]bool      `json:"skipTokens"`
-}
-
-type Tokens map[string]TokenInfo
-
-var (
-	// token data
-	tokenData  = make(map[string]TokenInfo)
-	skipTokens = make(map[string]bool)
-)
-
 // getTokenInfo fetches token metadata from Jupiter and caches it.
 func getTokenInfo(mint string) (TokenInfo, error) {
 	// Check if the token info is already cached
 	if cachedTokenInfo, exists := tokenData[mint]; exists {
 		return cachedTokenInfo, nil
-	}
-
-	if debug {
-		log.Printf("fetching token metadata for %s\n.", mint)
 	}
 
 	// If not cached, fetch token info from Jupiter
@@ -65,6 +45,7 @@ func getTokenPrice(mints ...string) (map[string]float64, error) {
 
 	for i, mint := range mints {
 		batch = append(batch, mint)
+
 		// When we have 100 mints or it's the last mint
 		if (i+1)%100 == 0 || i == len(mints)-1 {
 			// Join the batch into a single string
@@ -239,65 +220,4 @@ func fetchTokenPriceJupiter(mint string) (map[string]float64, error) {
 	}
 
 	return prices, nil
-}
-
-// Saves token data to a file
-func SaveTokenData() error {
-	// Create the merged data structure
-	store := TokenStore{
-		TokenData:  tokenData,
-		SkipTokens: skipTokens,
-	}
-
-	// Convert the struct to JSON with indentation
-	data, err := json.MarshalIndent(store, "", "  ") // Indent with 2 spaces
-	if err != nil {
-		return fmt.Errorf("failed to marshal token store: %v", err)
-	}
-
-	// Write the JSON data to the file
-	err = os.WriteFile(FILE_TOKEN_DATA, data, 0644)
-	if err != nil {
-		return fmt.Errorf("failed to write token store to file: %v", err)
-	}
-
-	log.Println("Token store saved successfully!")
-	return nil
-}
-
-// Loads token data from file
-func LoadTokenData() error {
-	// Initialize tokenData and skipTokens
-	tokenData = make(map[string]TokenInfo)
-	skipTokens = make(map[string]bool)
-
-	// Check if the file exists
-	if _, err := os.Stat(FILE_TOKEN_DATA); os.IsNotExist(err) {
-		log.Printf("Warning: %s not found. Initialized empty token store.\n", FILE_TOKEN_DATA)
-		return nil
-	}
-
-	// Read the file content
-	data, err := os.ReadFile(FILE_TOKEN_DATA)
-	if err != nil {
-		return fmt.Errorf("failed to read token store file: %v", err)
-	}
-
-	// Decode the JSON data into the TokenStore struct
-	var store TokenStore
-	err = json.Unmarshal(data, &store)
-	if err != nil {
-		return fmt.Errorf("failed to unmarshal token store: %v", err)
-	}
-
-	// Populate tokenData and skipTokens
-	if store.TokenData != nil {
-		tokenData = store.TokenData
-	}
-	if store.SkipTokens != nil {
-		skipTokens = store.SkipTokens
-	}
-
-	log.Printf("Loaded token store from '%s'.\n", FILE_TOKEN_DATA)
-	return nil
 }

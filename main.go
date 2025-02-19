@@ -8,9 +8,7 @@ import (
 	"math"
 	"os"
 	"os/signal"
-	"runtime"
 	"sort"
-	"strings"
 	"sync"
 	"syscall"
 	"time"
@@ -40,6 +38,39 @@ var (
 )
 
 func main() {
+	// Application flags
+	configFile := flag.String("config", "config.json", "Path to configuration file")
+	flag.BoolVar(&signer, "signer", true, "Wallet owner must be signer of token changes")
+	flag.BoolVar(&showsol, "sol", false, "Include SOL balance")
+	flag.BoolVar(&debug, "debug", false, "Debug mode")
+	flag.Usage = func() {
+		fmt.Printf(`Usage %s <REQUIRED> [OPTIONAL] ...
+
+	Required:
+	  --config <file>            Path to configuration file
+
+	Optional:
+	  --signer <true>            Wallet owner must be signer of token changes (default: false)
+	  --sol <true>               Include SOL balance (default: false)
+	  --debug <false>            Debug mode (default: false)
+	  -h,--help                  Show this help message
+
+	Example:
+	  %s --config wallet.config.json --signer true --debug true
+	  `,
+			os.Args[0], os.Args[0])
+		fmt.Println()
+	}
+	// if flag.NArg() == 0 {
+	// 	flag.Usage()
+	// 	os.Exit(1)
+	// }
+	flag.Parse()
+
+	if debug {
+		log.Println("Debug mode is 'enabled'.")
+	}
+
 	// Notify the channel for SIGINT (Ctrl+C) and SIGTERM (termination signal)
 	sigChan := make(chan os.Signal, 1)
 	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
@@ -56,17 +87,6 @@ func main() {
 		os.Exit(0)
 	}()
 
-	// Application flags
-	configFile := flag.String("config", "config.json", "Path to configuration file")
-	flag.BoolVar(&signer, "signer", true, "Wallet owner must be signer of token changes")
-	flag.BoolVar(&showsol, "sol", false, "Include SOL balance")
-	flag.BoolVar(&debug, "debug", false, "Debug mode")
-	flag.Parse()
-
-	if debug {
-		log.Println("Debug mode is 'enabled'.")
-	}
-
 	// Load configuration
 	err := loadConfig(*configFile)
 	if err != nil {
@@ -76,7 +96,7 @@ func main() {
 	log.Printf("Loaded app settings from '%v'.\n", *configFile)
 
 	// Initialize RPC client
-	client = rpc.NewWithCustomRPCClient(rpc.NewWithLimiter(config.NetworkURL, 4, 1))
+	client = rpc.NewWithCustomRPCClient(rpc.NewWithLimiter(config.NetworkURL, 2, 1))
 
 	// Initialize wallet map
 	for _, addr := range config.Wallets {
@@ -101,6 +121,7 @@ func main() {
 	}
 
 	// Print initial balances (sorted by USDValue in descending order)
+	log.Printf("%-10s %10s %10s$ %s\n", "SYMBOL", "BALANCE", "USD VALUE", "TOKEN MINT")
 	for _, addr := range config.Wallets {
 		tokenSlice := make([]TokenInfo, 0, len(walletMap[addr].Tokens))
 		for _, tokenInfo := range walletMap[addr].Tokens {
@@ -109,13 +130,12 @@ func main() {
 		sort.Slice(tokenSlice, func(i, j int) bool {
 			return tokenSlice[i].USDValue > tokenSlice[j].USDValue
 		})
-		log.Printf("%-10s %10s %10s$ %s\n", "SYMBOL", "BALANCE", "USD VALUE", "TOKEN MINT")
 		for i, tokenInfo := range tokenSlice {
 			if i >= 10 { // Limit to 10 tokens
-				log.Printf("... and %d more tokens ...\n", len(walletMap[addr].Tokens)-10)
+				log.Printf("%s..> ... and %d more tokens ...\n", addr[:4], len(walletMap[addr].Tokens)-10)
 				break
 			}
-			log.Printf("%-10s %10.f %10.f$ %s\n", tokenInfo.Symbol, tokenInfo.Balance, tokenInfo.USDValue, tokenInfo.Address)
+			log.Printf("%s..> %-10s %10.f %10.f$ %s\n", addr[:4], tokenInfo.Symbol, tokenInfo.Balance, tokenInfo.USDValue, tokenInfo.Address)
 		}
 	}
 
@@ -139,16 +159,13 @@ func main() {
 			}
 
 			// Update the wallet balance
-			err := updateWalletBalanceAndPrices(client, addr)
-			if err != nil {
-				log.Printf("Failed to update wallet balance for %s: %v", addr, err)
-				continue
-			}
+			dur := updateWalletBalanceAndPrices(client, addr)
 
+			log.Printf("Updated> %s %s(%d tokens) in %v.", addr, walletMap[addr].Name, len(walletMap[addr].Tokens), dur)
 			// Check for new tokens and balance changes
 			for mint, currentToken := range walletMap[addr].Tokens {
 				if previousToken, exists := previousTokens[mint]; !exists {
-					log.Printf("%-10s %+10.f %+10.f$ %s <NEW>\n", currentToken.Symbol, currentToken.Balance, currentToken.USDValue, mint)
+					log.Printf("%s..> %-10s %+10.f %+10.f$ %s <NEW>\n", addr[:4], currentToken.Symbol, currentToken.Balance, currentToken.USDValue, mint)
 
 					// Add new token to changes
 					changes[mint] = currentToken.Symbol
@@ -156,7 +173,7 @@ func main() {
 					balanceDiff := currentToken.Balance - previousToken.Balance
 					if math.Abs(balanceDiff) >= 0.001 {
 						usdValueDiff := currentToken.USDValue - previousToken.USDValue
-						log.Printf("%-10s %+10.f %+10.f$ %s <CHANGE>\n", currentToken.Symbol, balanceDiff, usdValueDiff, mint)
+						log.Printf("%s..> %-10s %+10.f %+10.f$ %s <CHANGE>\n", addr[:4], currentToken.Symbol, balanceDiff, usdValueDiff, mint)
 
 						// Add token to changes
 						changes[mint] = currentToken.Symbol
@@ -167,7 +184,7 @@ func main() {
 			// Check for removed tokens
 			for mint, previousToken := range previousTokens {
 				if _, exists := walletMap[addr].Tokens[mint]; !exists {
-					log.Printf("%-10s %10.f %10.f$ %s <REMOVED>\n", previousToken.Symbol, -previousToken.Balance, -previousToken.USDValue, mint)
+					log.Printf("%s..> %-10s %+10.f %+10.f$ %s <REMOVED>\n", addr[:4], previousToken.Symbol, -previousToken.Balance, -previousToken.USDValue, mint)
 
 					// Add removed token to changes
 					changes[mint] = previousToken.Symbol
@@ -196,11 +213,11 @@ func main() {
 	}
 }
 
-func updateWalletBalanceAndPrices(client *rpc.Client, walletAddr string) error {
+func updateWalletBalanceAndPrices(client *rpc.Client, walletAddr string) time.Duration {
 	// pubKey for wallet address
 	pubKey, err := solana.PublicKeyFromBase58(walletAddr)
 	if err != nil {
-		return fmt.Errorf("could not convert to solana.PublicKey format: %v", err)
+		return 0
 	}
 
 	// main tokens map
@@ -267,9 +284,6 @@ NEXT:
 		// merge tokens to the main map
 		for mint, tokenProgram := range ret {
 			if _, exists := skipTokens[mint]; exists {
-				if debug {
-					log.Printf("Skipping token %s", mint)
-				}
 				continue
 			}
 
@@ -277,7 +291,8 @@ NEXT:
 			tokenInfo, err := getTokenInfo(mint)
 			if err != nil {
 				if debug {
-					log.Printf("Failed to fetch token metadata for %s: %v", mint, err)
+					log.Printf("Failed to fetch token metadata for %s: %v\n", mint, err)
+					log.Printf("Added %s to skip-list!\n", mint)
 				}
 				skipTokens[mint] = true
 				continue
@@ -341,9 +356,9 @@ NEXT:
 
 	// save walletMap last update time
 	walletMap[walletAddr].LastUpdate = time.Now()
-	log.Printf("Wallet> %s %s(%d tokens) in %v.", walletAddr, walletMap[walletAddr].Name, len(walletMap[walletAddr].Tokens), time.Since(start).Truncate(time.Second))
 
-	return nil
+	end := time.Since(start).Truncate(time.Second)
+	return end
 }
 
 func fetchTokenAccounts(client *rpc.Client, pubKey solana.PublicKey, programID solana.PublicKey) (map[string]TokenInfo, error) {
@@ -416,42 +431,9 @@ func includeTokenFilter(mint string) bool {
 	return true
 }
 
-// retryRPC retries an RPC call with exponential backoff on rate limit errors
-func retryRPC(fn func() error) error {
-	delay := 5 * time.Second
-
-	var err error
-	for i := 0; i < config.MaxRetries; i++ {
-		if err = fn(); err == nil {
-			return nil // Success, exit
-		}
-
-		// Check if the error is a rate limit error (HTTP 429)
-		if strings.Contains(err.Error(), "many requests") || strings.Contains(err.Error(), "429") {
-			if debug {
-				// Log the function name or HTTP request details
-				pc, _, _, _ := runtime.Caller(1) // Get the caller's function name
-				funcName := runtime.FuncForPC(pc).Name()
-				log.Printf("Rate limit hit [%s]. Retrying in %v... (attempt %d/%d)", funcName, delay, i+1, config.MaxRetries)
-			}
-			time.Sleep(delay)
-			delay *= 2
-			if delay > 15*time.Second {
-				delay = 15 * time.Second
-			}
-			continue
-		}
-
-		// If not a rate limit error, return it
-		return err
-	}
-
-	return err
-}
-
 func isWalletSignerOfTransaction(client *rpc.Client, walletPubKey solana.PublicKey, mint string) (bool, error) {
 	// Create a pointer to an integer for the Limit field
-	limit := 10
+	limit := 5
 
 	// Fetch the latest transactions for the wallet
 	var txList []*rpc.TransactionSignature
@@ -505,9 +487,6 @@ func isWalletSignerOfTransaction(client *rpc.Client, walletPubKey solana.PublicK
 
 		// Check if the wallet's public key signed the transaction
 		if !transaction.IsSigner(walletPubKey) {
-			if debug {
-				log.Printf("Wallet %s did not sign transaction %s", walletPubKey, tx.Signature)
-			}
 			continue
 		}
 
@@ -529,3 +508,14 @@ func transactionInvolvesMint(transaction *solana.Transaction, mint string) bool 
 	}
 	return false
 }
+
+/*
+2025/02/19 01:50:16 Wallet> 5mmGGdGcDyB14Gb2ixS54SDRrGQ9JBdhAuGMgBsWBEs3 (14 tokens) in 16s.
+2025/02/19 01:50:38 Wallet> 6TuLcg1G1HuNLNRufqBeXZfPWEa4ti4ydWgnqAUGcLiC (113 tokens) in 21s.
+2025/02/19 01:50:53 Wallet> Dj8MAV63ZoYGmgj5t3BQuBDK2pkJmgshmY2pPrfBHuHS (4 tokens) in 15s.
+2025/02/19 01:50:53 GAP            +32047         +0$ 85uUxUmoC5AT3NNBYeDuYJgrsUpTSBK73Y68NVbEJRBj <NEW>
+2025/02/19 01:52:10 Updated> 5mmGGdGcDyB14Gb2ixS54SDRrGQ9JBdhAuGMgBsWBEs3 (14 tokens) in 1s.
+2025/02/19 01:52:10 Dj8MA..> GAP            +32047         +0$ 85uUxUmoC5AT3NNBYeDuYJgrsUpTSBK73Y68NVbEJRBj <NEW>
+2025/02/19 01:50:16 Init 5a> 5mmGGdGcDyB14Gb2ixS54SDRrGQ9JBdhAuGMgBsWBEs3 (14 tokens) in 16s.
+
+*/

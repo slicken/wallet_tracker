@@ -131,7 +131,7 @@ Example:
 	for _, addr := range config.Wallets {
 		// Update the wallet balance
 		dur := updateWalletBalanceAndPrices(client, addr)
-		log.Printf("Update> %s %s(%d tokens) in %v.", addr, walletMap[addr].Name, len(walletMap[addr].Tokens), dur)
+		log.Printf("Updated> %s %s(%d tokens) in %v.", addr, walletMap[addr].Name, len(walletMap[addr].Tokens), dur)
 
 		tokenSlice := make([]TokenInfo, 0, len(walletMap[addr].Tokens))
 		for _, tokenInfo := range walletMap[addr].Tokens {
@@ -142,10 +142,10 @@ Example:
 		})
 		for i, tokenInfo := range tokenSlice {
 			if i >= 10 { // Limit to 10 tokens
-				log.Printf("%s..> ... and %d more tokens ...\n", addr[:4], len(walletMap[addr].Tokens)-10)
+				log.Printf("%s> ... and %d more tokens ...\n", addr[:4], len(walletMap[addr].Tokens)-10)
 				break
 			}
-			log.Printf("%s..> %-13s %-13.f $%-13.f %s\n", addr[:4], tokenInfo.Symbol, tokenInfo.Balance, tokenInfo.USDValue, tokenInfo.Address)
+			log.Printf("%s> %-13s %-13.f $%-13.f %s\n", addr[:4], tokenInfo.Symbol, tokenInfo.Balance, tokenInfo.USDValue, tokenInfo.Address)
 
 		}
 	}
@@ -171,24 +171,19 @@ Example:
 
 			// Update the wallet balance
 			updateWalletBalanceAndPrices(client, addr)
-			// dur := updateWalletBalanceAndPrices(client, addr)
 			// log.Printf("Update> %s %s(%d tokens) in %v.", addr, walletMap[addr].Name, len(walletMap[addr].Tokens), dur)
 
 			// Check for new tokens and balance changes
 			for mint, currentToken := range walletMap[addr].Tokens {
 				if previousToken, exists := previousTokens[mint]; !exists {
-					log.Printf("%s..> %-13s %-13.f $%-13.f %s <NEW>\n", addr[:4], currentToken.Symbol, currentToken.Balance, currentToken.USDValue, mint)
-
-					// Add new token to changes
 					changes[mint] = currentToken.Symbol
+					log.Printf("%s> %-13s %-+13.f $%-+13.f %s <NEW>\n", addr[:4], currentToken.Symbol, currentToken.Balance, currentToken.USDValue, mint)
 				} else {
 					balanceDiff := currentToken.Balance - previousToken.Balance
 					usdValueDiff := currentToken.USDValue - previousToken.USDValue
-					if math.Abs(balanceDiff) >= 0.01 {
-						log.Printf("%s..> %-13s %-13.f $%-13.f %s <CHANGE>\n", addr[:4], currentToken.Symbol, balanceDiff, usdValueDiff, mint)
-
-						// Add token to changes
+					if math.Abs(balanceDiff) >= 0.02 {
 						changes[mint] = currentToken.Symbol
+						log.Printf("%s> %-13s %-+13.f $%-+13.f %s <CHANGE>\n", addr[:4], currentToken.Symbol, balanceDiff, usdValueDiff, mint)
 					}
 				}
 			}
@@ -196,10 +191,8 @@ Example:
 			// Check for removed tokens
 			for mint, previousToken := range previousTokens {
 				if _, exists := walletMap[addr].Tokens[mint]; !exists {
-					log.Printf("%s..> %-13s %-13.f $%-13.f %s <REMOVED>\n", addr[:4], previousToken.Symbol, -previousToken.Balance, -previousToken.USDValue, mint)
-
-					// Add removed token to changes
 					changes[mint] = previousToken.Symbol
+					log.Printf("%s> %-13s %-+13.f $%-+13.f %s <DEL>\n", addr[:4], previousToken.Symbol, -previousToken.Balance, -previousToken.USDValue, mint)
 				}
 			}
 

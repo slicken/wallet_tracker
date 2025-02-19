@@ -118,3 +118,35 @@ func retryRPC(fn func() error) error {
 
 	return err
 }
+
+// FormatNumber formats a float64 with custom thousand separator, decimal places, and optional sign
+func FormatNumber(value float64, decimalPlaces int, thousandSeparator string, showSign bool) string {
+	// Determine the sign
+	sign := ""
+	if showSign && value > 0 {
+		sign = "+"
+	} else if value < 0 {
+		sign = "-"
+		value = -value // Make the value positive for formatting
+	}
+
+	// Format the number with fixed decimal places
+	str := fmt.Sprintf("%.*f", decimalPlaces, value)
+
+	// Split into integer and fractional parts
+	parts := strings.Split(str, ".")
+	integerPart := parts[0]
+	fractionalPart := ""
+	if len(parts) > 1 {
+		fractionalPart = "." + parts[1]
+	}
+
+	// Add thousand separators to the integer part
+	n := len(integerPart)
+	for i := n - 3; i > 0; i -= 3 {
+		integerPart = integerPart[:i] + thousandSeparator + integerPart[i:]
+	}
+
+	// Combine sign, integer part, and fractional part
+	return sign + integerPart + fractionalPart
+}

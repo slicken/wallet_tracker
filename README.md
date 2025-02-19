@@ -12,9 +12,10 @@ Filter results with Include, Exclude lists, token Balance and or USD Value.
 - wallet name (if any) -- does not work yet!
 - token metadata, ticker, name, price, decimal etc.
 - include sol balance
+- wallet is signer of transaction
 - save token and wallet data
 - retry all http calls (with function name on debug)
-- debug prints
+- debug
 
 TODO:
 - add websocket

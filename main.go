@@ -125,8 +125,7 @@ Example:
 		log.Fatalf("Failed to load token data: %v", err)
 	}
 
-	log.Println("Initalizing wallets and fetching token metadata.")
-	log.Println("This process may take longer for wallets with a large number of tokens...")
+	log.Printf("Initalizing %d wallets and downloading token account data.\n", len(walletMap))
 
 	// Fetch and print initial balances (sorted by USDValue in descending order)
 	for _, addr := range config.Wallets {
@@ -146,7 +145,7 @@ Example:
 				log.Printf("%s> ... and %d more tokens ...\n", addr[:4], len(walletMap[addr].Tokens)-10)
 				break
 			}
-			log.Printf("%s> %-13s %-13.f $%-13.f %s\n", addr[:4], tokenInfo.Symbol, tokenInfo.Balance, tokenInfo.USDValue, tokenInfo.Address)
+			log.Printf("%s> %-13s %-13.f $%-13.f %45s\n", addr[:4], tokenInfo.Symbol, tokenInfo.Balance, tokenInfo.USDValue, tokenInfo.Address)
 
 		}
 	}
@@ -158,7 +157,7 @@ Example:
 	}
 	defer wsClient.Close()
 
-	log.Printf("Enstablished connection to %s\n", rpc.MainNetBetaSerum_WS)
+	log.Printf("Enstablished connection to %s.\n", rpc.MainNetBetaSerum_WS)
 	// Monitor transactions for each wallet
 	for _, wallet := range walletMap {
 		go func(wallet *Wallet) {
@@ -168,7 +167,7 @@ Example:
 				rpc.CommitmentConfirmed,
 			)
 			if err != nil {
-				log.Printf("Failed to subscribe to account changes for wallet %s: %v", wallet.Address, err)
+				log.Printf("Failed to subscribe to account changes for wallet %s: %v.", wallet.Address, err)
 				return
 			}
 			defer accountSub.Unsubscribe()
@@ -185,7 +184,7 @@ Example:
 			}
 		}(wallet)
 
-		log.Printf("Subscribe to account changes for wallet %s\n", wallet.Address)
+		log.Printf("Subscribed to account changes for wallet %s.\n", wallet.Address)
 	}
 	select {}
 }
@@ -257,9 +256,7 @@ func ProcessWalletTransactinos(client *rpc.Client, walletAddr string) {
 
 			// Check if the wallet's public key signed the transaction
 			if !transaction.IsSigner(pubKey) {
-				if debug {
-					log.Printf("%s> Transaction is NOT signed by this wallet!\n", walletAddr[:4])
-				}
+				log.Printf("%s> Transaction is NOT signed by this wallet!\n", walletAddr[:4])
 				if signer {
 					continue
 				}
@@ -278,6 +275,7 @@ func ProcessWalletTransactinos(client *rpc.Client, walletAddr string) {
 			mu.Lock()
 
 			for i, preBalance := range meta.PreTokenBalances {
+				// Include, Exclude token filter
 				if !includeTokenFilter(preBalance.Mint.String()) {
 					if debug {
 						log.Printf("toeken mint %s filtered by Includefilter\n", preBalance.Mint.String())
@@ -331,18 +329,29 @@ func ProcessWalletTransactinos(client *rpc.Client, walletAddr string) {
 				// Calculate balance change
 				balanceChange := balanceAfter - balanceBefore
 				balanceChangeUSD := balanceChange * price
+				percentChange := balanceChange * 100 / balanceAfter
 
 				// Log the transaction details
 				var action string
 				if balanceBefore == 0 {
-					action = "BUY"
+					action = "NEW"
 				} else if balanceAfter == 0 {
+					action = "REM"
+				} else if balanceChange > 0 {
+					action = "BUY"
+				} else if balanceChange < 0 {
 					action = "SELL"
-				} else {
-					action = "UPDATE"
 				}
 
-				log.Printf("%4s> %-+6s %-12v %-+14f $%-+14f %-s\n", walletAddr[:4], action, tokenInfo.Symbol, balanceChange, balanceChangeUSD, preBalance.Mint.String())
+				// Pretty acciubt changes
+				if math.Abs(percentChange) >= config.ChangePercent &&
+					math.Abs(balanceChangeUSD) >= config.ChangeValueUSD {
+					log.Printf("%4s> %-12v %-+14f $%-+14f %-46s %-6s\n", walletAddr[:4], tokenInfo.Symbol, balanceChange, balanceChangeUSD, preBalance.Mint.String(), action)
+
+					// if buy //
+					// if sell //
+				}
+
 			}
 
 			// Unlock the mutex after processing the transaction

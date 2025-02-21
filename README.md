@@ -32,52 +32,51 @@ $ ./walletTracker -h
 Usage ./walletTracker <FILE> [OPTIONAL] ...
 
 Required:
-	<FILE>                     Path to configuration file
+	<FILE>               Path to configuration file
 
 Optional:
-	--signer bool              Shows if balance change was made by wallet owner (default: true)
-	--sol  bool                Include SOL balance (default: false)
-	--debug  bool              Debug mode (default: false)
-	-h,--help                  Show this help message
+	--signed bool        Only show changes that is signed by wallet (default: false)
+	--debug  bool        Debug mode (default: false)
+	-h,--help            Show help message
 
 Example:
-	./walletTracker wallet.config.json --signer=false --debug
+	./walletTracker wallet.config.json --signed true --debug
 
 ```
 ```bash
-./walletTracker dave_portnoy.json
-2025/02/19 18:44:39 Loaded app settings from 'dave_portnoy.json'.
-2025/02/19 18:44:39 Loaded token store from 'token_data.json'.
-2025/02/19 18:44:39 Initalizing wallets and fetching token metadata.
-2025/02/19 18:44:39 This process may take longer for wallets with a large number of tokens...
-2025/02/19 18:44:47 Update> 5rkPDK4JnVAumgzeV2Zu8vjggMTtHdDtrsd5o9dhGZHD (238 tokens) in 8s.
-2025/02/19 18:44:47 5rkP..> EMA           60793000      $5054405465815 3FQaXsbLrwPiMnWZkx7w3QcY5HYvBEKcJsfBfGhGRQUi
-2025/02/19 18:44:47 5rkP..> HallaTomas    25000000      $907075146651  8MnF4AJbY2wGqkeqFXixBYKhU81Gs4c4hueJFeS8YKMd
-2025/02/19 18:44:47 5rkP..> Putin         300000000     $612330540520  EaNirdXSTRFus3WvBnfHN5Zn85sNZnP9ekgLQxfGkr3o
-2025/02/19 18:44:47 5rkP..> Barstools     915000000     $22243386343   7Zm96XEh1onLDnF4NEDNefvnNFvYBxcGRCwoX449NJfs
-2025/02/19 18:44:47 5rkP..> PI            800000000     $14112825866   5GjWhPggud1NUGbejPGghRVusfRh1uGPX8ePGHPiY7ej
-2025/02/19 18:44:47 5rkP..> Barron        44182850      $759273296     GNYkNA2ibw6MP4HGgBJg6EvspqH1oQteB5HjUodogM98
-2025/02/19 18:44:47 5rkP..> DAVE          500000000     $382031500     9a3xSX8hTTCfD6Z4CeswpDT4iACfFyxo3DugBtkfvk2L
-2025/02/19 18:44:47 5rkP..> PIZZA         950100000     $69067300      ErMCPhwmpbS8erVTJwy8D6qNJjsqy9wdV6RyhpUGKbij
-2025/02/19 18:44:47 5rkP..> Freetool      930000000     $58743674      FMvZph9UyckDcgyMXzqvrH7tdVEa9Kcaf7nHxzeEkR7b
-2025/02/19 18:44:47 5rkP..> SHORTNOY      17295708      $28268313      DNBXFzxfV9hqf9fZD7Mvm8aYnuZXuU6kGRV2nRRep1eL
-2025/02/19 18:44:47 5rkP..> ... and 228 more tokens ...
-2025/02/19 18:44:47 Scanning wallet balances every 1m0s...
-2025/02/19 18:50:55 5rkP..> ⛳🍺          420690        $0             3sUdd48Xuq2dtCnuprKK2fYAcQK7CYiAkfYQMPAgpump <NEW>
-2025/02/19 18:52:08 5rkP..> ⛳🍺 transaction NOT signed by wallet! probobly recived token.
+2025/02/21 14:32:03 Loaded app settings from 'dave_portnoy.json'.
+2025/02/21 14:32:03 Loaded token store from 'token_data.json'.
+2025/02/21 14:32:03 Initalizing wallets and fetching token metadata.
+2025/02/21 14:32:03 This process may take longer for wallets with a large number of tokens...
+2025/02/21 14:32:14 Updated> 5rkPDK4JnVAumgzeV2Zu8vjggMTtHdDtrsd5o9dhGZHD (3525 tokens) in 9s.
+2025/02/21 14:32:14 5rkP> HallaTomas    25000000      $949081404956  8MnF4AJbY2wGqkeqFXixBYKhU81Gs4c4hueJFeS8YKMd
+2025/02/21 14:32:14 5rkP> Putin         300000000     $640687303406  EaNirdXSTRFus3WvBnfHN5Zn85sNZnP9ekgLQxfGkr3o
+2025/02/21 14:32:14 5rkP> EMA           60793000      $589291051801  3FQaXsbLrwPiMnWZkx7w3QcY5HYvBEKcJsfBfGhGRQUi
+2025/02/21 14:32:14 5rkP> OS            833333        $43859168897   5NFeJPEzquryBguZLz9uH2s2scN2ntWBH34o2zAwga9D
+2025/02/21 14:32:14 5rkP> PI            800000000     $29063574788   5GjWhPggud1NUGbejPGghRVusfRh1uGPX8ePGHPiY7ej
+2025/02/21 14:32:14 5rkP> Barstools     915000000     $23273467958   7Zm96XEh1onLDnF4NEDNefvnNFvYBxcGRCwoX449NJfs
+2025/02/21 14:32:14 5rkP> Barron        44182850      $7933281389    GNYkNA2ibw6MP4HGgBJg6EvspqH1oQteB5HjUodogM98
+2025/02/21 14:32:14 5rkP> DAVE          500000000     $634297000     9a3xSX8hTTCfD6Z4CeswpDT4iACfFyxo3DugBtkfvk2L
+2025/02/21 14:32:14 5rkP> Freetool      930000000     $61464068      FMvZph9UyckDcgyMXzqvrH7tdVEa9Kcaf7nHxzeEkR7b
+2025/02/21 14:32:14 5rkP> SHORTNOY      17295708      $29577408      DNBXFzxfV9hqf9fZD7Mvm8aYnuZXuU6kGRV2nRRep1eL
+2025/02/21 14:32:14 5rkP> ... and 3515 more tokens ...
+2025/02/21 14:32:14 Enstablished connection to wss://solana-api.projectserum.com
+2025/02/21 14:32:14 Subscribe to account changes for wallet 5rkPDK4JnVAumgzeV2Zu8vjggMTtHdDtrsd5o9dhGZHD
+2025/02/21 14:32:49 5rkP> UPDATE shortnoy     +6.900158      $+0.000058      A4PWgKGXSPYnjk9ZkTbXhJASUpCqgUSHVTbvPruPpump
+2025/02/21 14:33:51 5rkP> UPDATE shortnoy     +6.900158      $+0.000058      A4PWgKGXSPYnjk9ZkTbXhJASUpCqgUSHVTbvPruPpump
+2025/02/21 14:34:49 5rkP> UPDATE shortnoy     +6.900158      $+0.000058      A4PWgKGXSPYnjk9ZkTbXhJASUpCqgUSHVTbvPruPpump
 ```
 
 ### Create your app configuration file (required)
 ```json
 {
   "CustomRPC": "https://api.mainnet-beta.solana.com",
-  "UpdateInterval": "2m",
-  "MaxRetries": 5,
+  "CustomWS": "",
   "Wallets": [
-    "AZzYdTu9moqQsYeV4e1mzWLEdQc15BTuRWivjmPMY2S2"
+    "5rkPDK4JnVAumgzeV2Zu8vjggMTtHdDtrsd5o9dhGZHD"
   ],
-  "MinimumBalance": 1,
-  "MinimumValueUSD": 0,
+  "ChangePercent": 0,
+  "ChangeValueUSD": 0,
   "IncludeTokenList": [],
   "ExcludeTokenList": []
 }

@@ -54,7 +54,7 @@ func getTokenPrice(mints ...string) (map[string]float64, error) {
 			// Fetch prices for the current batch
 			priceMap, err := fetchTokenPriceJupiter(batchStr)
 			if err != nil {
-				log.Printf("Failed to fetch prices for batch %d: %v", i/100, err)
+				log.Printf("Failed to fetch prices for batch %d: %v", (i/100)+1, err)
 			}
 			// Merge fetched prices into the final prices map
 			for mintID, price := range priceMap {

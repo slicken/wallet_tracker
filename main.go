@@ -17,6 +17,7 @@ import (
 	"github.com/gagliardetto/solana-go"
 	"github.com/gagliardetto/solana-go/programs/token"
 	"github.com/gagliardetto/solana-go/rpc"
+	"github.com/gagliardetto/solana-go/rpc/ws"
 )
 
 type Wallet struct {
@@ -29,18 +30,16 @@ type Wallet struct {
 
 var (
 	walletMap = make(map[string]*Wallet) // Map of wallet addresses to Wallet struct
-	signer    = true
-	solbal    = false
+	signer    = false
 	debug     = false
 
 	client *rpc.Client
-	mu     sync.Mutex
+	mu     sync.Mutex // Mutex for synchronization
 )
 
 func main() {
 	// Define flags
-	flag.BoolVar(&signer, "signer", true, "Wallet owner must be signer of token changes")
-	flag.BoolVar(&solbal, "sol", false, "Include SOL balance")
+	flag.BoolVar(&signer, "signer", false, "Only show account changes signed by wallet owner")
 	flag.BoolVar(&debug, "debug", false, "Debug mode")
 
 	// Custom usage message
@@ -48,16 +47,15 @@ func main() {
 		fmt.Printf(`Usage %s <FILE> [OPTIONAL] ...
 
 Required:
-	<FILE>                     Path to configuration file
+	<FILE>               Path to configuration file
 
 Optional:
-	--signer bool              Shows if balance change was made by wallet owner (default: true)
-	--sol  bool                Include SOL balance (default: false)
-	--debug  bool              Debug mode (default: false)
-	-h,--help                  Show this help message
+	--signed bool        Only show changes that is signed by wallet (default: false)
+	--debug  bool        Debug mode (default: false)
+	-h,--help            Show help message
 
 Example:
-	%s wallet.config.json --signer true --debug true
+	%s wallet.config.json --signed true --debug
 `,
 			os.Args[0], os.Args[0])
 		fmt.Println()
@@ -83,6 +81,10 @@ Example:
 	if debug {
 		log.Println("Debug mode is 'enabled'.")
 	}
+	if signer {
+		log.Println("Signer is enabled. Will only display token changes signed by wallet owers")
+	}
+
 	// Notify the channel for SIGINT (Ctrl+C) and SIGTERM (termination signal)
 	sigChan := make(chan os.Signal, 1)
 	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
@@ -106,9 +108,8 @@ Example:
 	}
 
 	log.Printf("Loaded app settings from '%v'.\n", configFile)
-
 	// Initialize RPC client
-	client = rpc.NewWithCustomRPCClient(rpc.NewWithLimiter(config.NetworkURL, 4, 1))
+	client = rpc.NewWithCustomRPCClient(rpc.NewWithLimiter(config.CustomRPC, 5, 1))
 
 	// Initialize wallet map
 	for _, addr := range config.Wallets {
@@ -150,71 +151,204 @@ Example:
 		}
 	}
 
-	// Parse the update interval from config
-	interval, _ := time.ParseDuration(config.UpdateInterval)
-
-	// Start periodic balance checking
-	log.Printf("Scanning wallet balances every %v...\n", interval)
-	ticker := time.NewTicker(interval)
-	defer ticker.Stop()
-
-	for range ticker.C {
-		for _, addr := range config.Wallets {
-			// Store changes made to tokens
-			var changes = make(map[string]string)
-
-			// Copy the current tokens for comparison
-			previousTokens := make(map[string]TokenInfo)
-			for k, v := range walletMap[addr].Tokens {
-				previousTokens[k] = v
-			}
-
-			// Update the wallet balance
-			updateWalletBalanceAndPrices(client, addr)
-			// log.Printf("Update> %s %s(%d tokens) in %v.", addr, walletMap[addr].Name, len(walletMap[addr].Tokens), dur)
-
-			// Check for new tokens and balance changes
-			for mint, currentToken := range walletMap[addr].Tokens {
-				if previousToken, exists := previousTokens[mint]; !exists {
-					changes[mint] = currentToken.Symbol
-					log.Printf("%s> %-13s %-+13.f $%-+13.f %s <NEW>\n", addr[:4], currentToken.Symbol, currentToken.Balance, currentToken.USDValue, mint)
-				} else {
-					balanceDiff := currentToken.Balance - previousToken.Balance
-					usdValueDiff := currentToken.USDValue - previousToken.USDValue
-					if math.Abs(balanceDiff) >= 0.02 {
-						changes[mint] = currentToken.Symbol
-						log.Printf("%s> %-13s %-+13.f $%-+13.f %s <CHANGE>\n", addr[:4], currentToken.Symbol, balanceDiff, usdValueDiff, mint)
-					}
-				}
-			}
-
-			// Check for removed tokens
-			for mint, previousToken := range previousTokens {
-				if _, exists := walletMap[addr].Tokens[mint]; !exists {
-					changes[mint] = previousToken.Symbol
-					log.Printf("%s> %-13s %-+13.f $%-+13.f %s <DEL>\n", addr[:4], previousToken.Symbol, -previousToken.Balance, -previousToken.USDValue, mint)
-				}
-			}
-
-			// Check if transacton for token change is signed by wallet owner
-			// This can filter out balance changes not done by wallet owner
-			if signer {
-				for mint, symbol := range changes {
-					isOwner, err := isWalletSignerOfTransaction(client, walletMap[addr].PubKey, mint)
-					if err != nil {
-						log.Printf("Failed to check lookup token change: %v", err)
-						continue
-					}
-
-					if !isOwner {
-						log.Printf("%s..> %s transaction NOT signed by wallet! probobly recived token.", addr[:4], symbol)
-
-						// copytrade? make transaction
-					}
-				}
-			}
-		}
+	// Connect to WebSocket
+	wsClient, err := ws.Connect(context.Background(), rpc.MainNetBeta_WS)
+	if err != nil {
+		panic(err)
 	}
+	defer wsClient.Close()
+
+	log.Printf("Enstablished connection to %s\n", rpc.MainNetBetaSerum_WS)
+	// Monitor transactions for each wallet
+	for _, wallet := range walletMap {
+		go func(wallet *Wallet) {
+			// Subscribe to account changes for the wallet's public key
+			accountSub, err := wsClient.AccountSubscribe(
+				wallet.PubKey, // solana.PublicKey
+				rpc.CommitmentConfirmed,
+			)
+			if err != nil {
+				log.Printf("Failed to subscribe to account changes for wallet %s: %v", wallet.Address, err)
+				return
+			}
+			defer accountSub.Unsubscribe()
+
+			// Wait for account change notifications
+			for {
+				_, err := accountSub.Recv(context.Background())
+				if err != nil {
+					log.Printf("WebSocket subscription error for account changes: %v", err)
+					return
+				}
+				// Process the transaction concurrently
+				ProcessWalletTransactinos(client, wallet.Address)
+			}
+		}(wallet)
+
+		log.Printf("Subscribe to account changes for wallet %s\n", wallet.Address)
+	}
+	select {}
+}
+
+// ProcessRecentTransactions. FIlter and print relevant data
+func ProcessWalletTransactinos(client *rpc.Client, walletAddr string) {
+	// Use a goroutine to process transactions concurrently
+	go func() {
+		// pubKey for wallet address
+		pubKey, err := solana.PublicKeyFromBase58(walletAddr)
+		if err != nil {
+			log.Printf("Failed to get public key for wallet %s: %v", walletAddr, err)
+			return
+		}
+
+		// Calculate limit in one line
+		limit := 1
+
+		// Fetch recent transactions for the wallet
+		var txList []*rpc.TransactionSignature
+		err = retryRPC(func() error {
+			var err error
+			txList, err = client.GetSignaturesForAddressWithOpts(
+				context.TODO(),
+				pubKey,
+				&rpc.GetSignaturesForAddressOpts{
+					Limit: &limit,
+				},
+			)
+			return err
+		})
+		if err != nil {
+			log.Printf("Failed to fetch transactions for wallet %s: %v", walletAddr, err)
+			return
+		}
+
+		// Iterate through the transactions
+		for _, sig := range txList {
+			// Print transaction time
+			if debug {
+				log.Printf("%s> Tx: %s\n", walletAddr[:4], sig.Signature.String())
+			}
+
+			// Fetch the transaction details
+			var tx *rpc.GetTransactionResult
+			err := retryRPC(func() error {
+				var err error
+				tx, err = client.GetTransaction(
+					context.TODO(),
+					sig.Signature,
+					&rpc.GetTransactionOpts{
+						Encoding:                       solana.EncodingBase64,
+						MaxSupportedTransactionVersion: new(uint64), // Support all versions
+					},
+				)
+				return err
+			})
+			if err != nil {
+				log.Printf("Failed to fetch transaction %s: %v", sig.Signature, err)
+				continue
+			}
+
+			var transaction solana.Transaction
+			err = bin.NewBinDecoder(tx.Transaction.GetBinary()).Decode(&transaction)
+			if err != nil {
+				log.Printf("Failed to decode transaction %s: %v", sig.Signature.String(), err)
+				continue
+			}
+
+			// Check if the wallet's public key signed the transaction
+			if !transaction.IsSigner(pubKey) {
+				if debug {
+					log.Printf("%s> Transaction is NOT signed by this wallet!\n", walletAddr[:4])
+				}
+				if signer {
+					continue
+				}
+			}
+
+			// Extract token balances before and after the transaction
+			meta := tx.Meta
+			if meta == nil {
+				if debug {
+					log.Printf("No metadata found for transaction %s\n", sig.Signature)
+				}
+				continue
+			}
+
+			// Lock the mutex to protect shared resources
+			mu.Lock()
+
+			for i, preBalance := range meta.PreTokenBalances {
+				if !includeTokenFilter(preBalance.Mint.String()) {
+					if debug {
+						log.Printf("toeken mint %s filtered by Includefilter\n", preBalance.Mint.String())
+					}
+					continue
+				}
+
+				// Ensure postBalance exists
+				if i >= len(meta.PostTokenBalances) {
+					if debug {
+						log.Printf("No post balance found for token account %v\n", preBalance.AccountIndex)
+					}
+					continue
+				}
+				postBalance := meta.PostTokenBalances[i]
+
+				// Check if the preBalance or postBalance is owned by us
+				isPreBalanceOwnedByUs := *preBalance.Owner == pubKey
+				isPostBalanceOwnedByUs := *postBalance.Owner == pubKey
+
+				// Skip if neither preBalance nor postBalance is owned by us
+				if !isPreBalanceOwnedByUs && !isPostBalanceOwnedByUs {
+					continue
+				}
+
+				// Calculate balances
+				balanceBefore := 0.
+				if preBalance.UiTokenAmount.UiAmount != nil {
+					balanceBefore = *preBalance.UiTokenAmount.UiAmount
+				}
+				balanceAfter := 0.
+				if postBalance.UiTokenAmount.UiAmount != nil {
+					balanceAfter = *postBalance.UiTokenAmount.UiAmount
+				}
+
+				// Get TokenData from Jupiter
+				tokenInfo, err := getTokenInfo(preBalance.Mint.String())
+				if err != nil {
+					log.Printf("Failed to fetch token metadata for %s: %v\n", preBalance.Mint.String(), err)
+					continue
+				}
+
+				// Get Token Price from Jupiter
+				priceMap, err := getTokenPrice(preBalance.Mint.String())
+				if err != nil {
+					log.Printf("Failed to get token prices: %v", err)
+					continue
+				}
+				price := priceMap[preBalance.Mint.String()]
+
+				// Calculate balance change
+				balanceChange := balanceAfter - balanceBefore
+				balanceChangeUSD := balanceChange * price
+
+				// Log the transaction details
+				var action string
+				if balanceBefore == 0 {
+					action = "BUY"
+				} else if balanceAfter == 0 {
+					action = "SELL"
+				} else {
+					action = "UPDATE"
+				}
+
+				log.Printf("%4s> %-+6s %-12v %-+14f $%-+14f %-s\n", walletAddr[:4], action, tokenInfo.Symbol, balanceChange, balanceChangeUSD, preBalance.Mint.String())
+			}
+
+			// Unlock the mutex after processing the transaction
+			mu.Unlock()
+		}
+	}()
 }
 
 func updateWalletBalanceAndPrices(client *rpc.Client, walletAddr string) time.Duration {
@@ -228,7 +362,7 @@ func updateWalletBalanceAndPrices(client *rpc.Client, walletAddr string) time.Du
 	var mints []string
 	tokenMap := make(map[string]TokenInfo)
 
-	if solbal {
+	for {
 		// Show SOL balance
 		solBalance, err := client.GetBalance(
 			context.Background(),
@@ -239,7 +373,7 @@ func updateWalletBalanceAndPrices(client *rpc.Client, walletAddr string) time.Du
 			if debug {
 				log.Printf("failed to fetch SOL balance: %v\n", err)
 			}
-			goto NEXT
+			break
 		}
 
 		// Convert SOL balance from lamports to SOL (1 SOL = 10^9 lamports)
@@ -251,7 +385,7 @@ func updateWalletBalanceAndPrices(client *rpc.Client, walletAddr string) time.Du
 			if debug {
 				log.Printf("failed to fetch SOL price: %v\n", err)
 			}
-			goto NEXT
+			break
 		}
 
 		// Calculate SOL USD value
@@ -265,12 +399,8 @@ func updateWalletBalanceAndPrices(client *rpc.Client, walletAddr string) time.Du
 			Balance:  solBalanceInSOL,
 			USDValue: solUSDValue,
 		}
-		if debug {
-			log.Println("Fetched SOL balance")
-		}
+		break
 	}
-
-NEXT:
 
 	start := time.Now()
 
@@ -311,7 +441,6 @@ NEXT:
 				Balance: balance,
 				Symbol:  tokenInfo.Symbol,
 				Name:    tokenInfo.Name,
-				// Price:   tokenInfo.Price,
 			}
 
 			// add to our mints list for price fetching
@@ -338,33 +467,27 @@ NEXT:
 
 		// Calculate actual balance
 		usdValue := token.Balance * price
-		if usdValue >= config.MinimumValue && token.Balance >= config.MinimumBalance {
-			token.Price = price
-			token.USDValue = usdValue
-			tokenMap[mint] = token
-		} else {
-			delete(tokenMap, mint)
-		}
+		token.Price = price
+		token.USDValue = usdValue
+		tokenMap[mint] = token
 	}
 
-	// remove tokens from walletMap that we dont have in new tokensMap
+	// Remove tokens from walletMap that does not exist in tokensMap
 	for mint := range walletMap[walletAddr].Tokens {
-		// Check for removed tokens and merge new tokens
 		if _, exist := tokenMap[mint]; !exist {
 			delete(walletMap[walletAddr].Tokens, mint)
 		}
 	}
 
-	// copy new tokensMap to main walletMap
+	// Copy tokens from tokensMap to the walletMap
 	for mint, token := range tokenMap {
 		walletMap[walletAddr].Tokens[mint] = token
 	}
 
-	// save walletMap last update time
+	// Save walletMap last update time
 	walletMap[walletAddr].LastUpdate = time.Now()
 
-	end := time.Since(start).Truncate(time.Second)
-	return end
+	return time.Since(start).Truncate(time.Second)
 }
 
 func fetchTokenAccounts(client *rpc.Client, pubKey solana.PublicKey, programID solana.PublicKey) (map[string]TokenInfo, error) {
@@ -435,82 +558,4 @@ func includeTokenFilter(mint string) bool {
 
 	// Otherwise, include the token
 	return true
-}
-
-func isWalletSignerOfTransaction(client *rpc.Client, walletPubKey solana.PublicKey, mint string) (bool, error) {
-	// Create a pointer to an integer for the Limit field
-	limit := 10
-
-	// Fetch the latest transactions for the wallet
-	var txList []*rpc.TransactionSignature
-	err := retryRPC(func() error {
-		var err error
-		txList, err = client.GetSignaturesForAddressWithOpts(
-			context.Background(),
-			walletPubKey,
-			&rpc.GetSignaturesForAddressOpts{
-				Limit: &limit, // Pass a pointer to the limit
-			},
-		)
-		return err
-	})
-	if err != nil {
-		return false, fmt.Errorf("failed to fetch transaction history: %v", err)
-	}
-
-	// Iterate through the transactions
-	for _, tx := range txList {
-		// Fetch the transaction details
-		var txDetails *rpc.GetTransactionResult
-		err := retryRPC(func() error {
-			var err error
-			txDetails, err = client.GetTransaction(
-				context.Background(),
-				tx.Signature,
-				&rpc.GetTransactionOpts{
-					Encoding:                       solana.EncodingBase64,
-					MaxSupportedTransactionVersion: new(uint64), // Support all versions
-				},
-			)
-			return err
-		})
-		if err != nil {
-			if debug {
-				log.Printf("Failed to fetch transaction details for %s: %v", tx.Signature, err)
-			}
-			continue
-		}
-
-		// Decode the transaction
-		var transaction solana.Transaction
-		err = bin.NewBinDecoder(txDetails.Transaction.GetBinary()).Decode(&transaction)
-		if err != nil {
-			if debug {
-				log.Printf("Failed to decode transaction %s: %v", tx.Signature, err)
-			}
-			continue
-		}
-
-		// Check if the wallet's public key signed the transaction
-		if !transaction.IsSigner(walletPubKey) {
-			continue
-		}
-
-		// Check if the transaction involves the specified mint
-		if transactionInvolvesMint(&transaction, mint) {
-			return true, nil
-		}
-	}
-
-	return false, nil
-}
-
-func transactionInvolvesMint(transaction *solana.Transaction, mint string) bool {
-	// Iterate through the accounts in the transaction to check if the mint is involved
-	for _, account := range transaction.Message.AccountKeys {
-		if account.String() == mint {
-			return true
-		}
-	}
-	return false
 }

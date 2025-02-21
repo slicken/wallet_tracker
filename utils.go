@@ -25,6 +25,15 @@ var (
 	skipTokens = make(map[string]bool)
 )
 
+// Copy Token map
+func CopyTokens(tokens map[string]TokenInfo) map[string]TokenInfo {
+	previousTokens := make(map[string]TokenInfo)
+	for k, v := range tokens {
+		previousTokens[k] = v
+	}
+	return previousTokens
+}
+
 // Saves token data to a file
 func SaveTokenData() error {
 	// Create the merged data structure
@@ -88,10 +97,11 @@ func LoadTokenData() error {
 
 // retryRPC retries an RPC call with exponential backoff on rate limit errors
 func retryRPC(fn func() error) error {
+	const retries = 9
 	delay := 5 * time.Second
 
 	var err error
-	for i := 0; i < config.MaxRetries; i++ {
+	for i := 0; i < retries; i++ {
 		if err = fn(); err == nil {
 			return nil // Success, exit
 		}
@@ -102,7 +112,7 @@ func retryRPC(fn func() error) error {
 				// Log the function name or HTTP request details
 				pc, _, _, _ := runtime.Caller(1) // Get the caller's function name
 				funcName := runtime.FuncForPC(pc).Name()
-				log.Printf("Rate limit hit [%s]. Retrying in %v... (attempt %d/%d)", funcName, delay, i+1, config.MaxRetries)
+				log.Printf("Rate limit hit [%s]. Retrying in %v... (attempt %d/%d)", funcName, delay, i+1, retries)
 			}
 			time.Sleep(delay)
 			delay *= 2

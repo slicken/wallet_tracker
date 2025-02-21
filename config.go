@@ -8,12 +8,11 @@ import (
 )
 
 type Config struct {
-	NetworkURL     string   `json:"CustomRPC"`
-	MaxRetries     int      `json:"MaxRetries"`
-	UpdateInterval string   `json:"UpdateInterval"`
+	CustomRPC      string   `json:"CustomRPC"`
+	CustomWS       string   `json:"CustomWS"`
 	Wallets        []string `json:"Wallets"`
-	MinimumBalance float64  `json:"MinimumBalance"`
-	MinimumValue   float64  `json:"MinimumValueUSD"`
+	ChangePercent  float64  `json:"ChangePercent"`
+	ChangeValueUSD float64  `json:"ChangeValueUSD"`
 	IncludeTokens  []string `json:"IncludeTokenList"`
 	ExcludeTokens  []string `json:"ExcludeTokenList"`
 }

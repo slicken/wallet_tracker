@@ -1,29 +1,38 @@
 # solana wallet tacker
 
-A Solana wallet tracker that scan wallets and print token statistics.
+A Solana wallet tracker that subscribes to wallet account and look for changes.
 Filter results with Include, Exclude lists, token Balance and or USD Value.
 
 ## Futures
+- blazing fast
 - custom rpc
-- track multiple wallets
-- filter token by balance
-- filter token by USD value
-- filter include/exclude list
-- wallet name (if any) -- does not work yet!
-- token metadata, ticker, name, price, decimal etc.
-- token change signed by wallet, or did someone transfered it
-- include sol balance
-- save token and wallet data
-- retry and limiter for http calls
+- custom ws
+- rate limiter
+- retry on error
+- tracks multiple wallets
+- filter changes made only by wallet owner
+- filter by account change percent
+- filter by account change value USD
+- filter include/exclude token list
+- wallet name (if any)              -- not implemented
+- token metadata, and realtime price
+- save token and wallet data        -- needs update
 - debug
 
 TODO:
-- add websocket
 - copy trade wallet:
   - set trade size
   - set trade vs token (default: sol)
   - set trade amount
-  - set sell rules (default: follow wallet activity)
+  - set buy rules
+    - buy once
+    - dca in over N times over T duration
+  - set sell rules
+    - sell once
+    - sell all after T seconds
+    - dca out over N times over T duration
+
+- more ?
 
 ### Usage
 

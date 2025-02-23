@@ -17,8 +17,6 @@ type TokenStore struct {
 	SkipTokens map[string]bool      `json:"skipTokens"`
 }
 
-type Tokens map[string]TokenInfo
-
 var (
 	// token data
 	tokenData  = make(map[string]TokenInfo)
@@ -108,7 +106,7 @@ func retryRPC(fn func() error) error {
 
 		// Check if the error is a rate limit error (HTTP 429)
 		if strings.Contains(err.Error(), "many requests") || strings.Contains(err.Error(), "429") {
-			if debug {
+			if verbose {
 				// Log the function name or HTTP request details
 				pc, _, _, _ := runtime.Caller(1) // Get the caller's function name
 				funcName := runtime.FuncForPC(pc).Name()
@@ -127,36 +125,4 @@ func retryRPC(fn func() error) error {
 	}
 
 	return err
-}
-
-// FormatNumber formats a float64 with custom thousand separator, decimal places, and optional sign
-func FormatNumber(value float64, decimalPlaces int, thousandSeparator string, showSign bool) string {
-	// Determine the sign
-	sign := ""
-	if showSign && value > 0 {
-		sign = "+"
-	} else if value < 0 {
-		sign = "-"
-		value = -value // Make the value positive for formatting
-	}
-
-	// Format the number with fixed decimal places
-	str := fmt.Sprintf("%.*f", decimalPlaces, value)
-
-	// Split into integer and fractional parts
-	parts := strings.Split(str, ".")
-	integerPart := parts[0]
-	fractionalPart := ""
-	if len(parts) > 1 {
-		fractionalPart = "." + parts[1]
-	}
-
-	// Add thousand separators to the integer part
-	n := len(integerPart)
-	for i := n - 3; i > 0; i -= 3 {
-		integerPart = integerPart[:i] + thousandSeparator + integerPart[i:]
-	}
-
-	// Combine sign, integer part, and fractional part
-	return sign + integerPart + fractionalPart
 }

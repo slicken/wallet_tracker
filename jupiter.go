@@ -8,16 +8,23 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+	"time"
 )
 
 type TokenInfo struct {
-	Address  string  `json:"address,omitempty"`   // Token mint address
-	Symbol   string  `json:"symbol,omitempty"`    // Token symbol
-	Name     string  `json:"name,omitempty"`      // Token name
-	Decimals int     `json:"decimals,omitempty"`  // Token decimals
-	Balance  float64 `json:"balance,omitempty"`   // Token balance
-	USDValue float64 `json:"usd_value,omitempty"` // Token balance in USD
-	Price    float64 `json:"price,omitempty"`     // Token price
+	Address           string    `json:"address,omitempty"`
+	CreatedAt         time.Time `json:"created_at,omitempty"`
+	DailyVolume       float64   `json:"daily_volume,omitempty"`
+	Decimals          int       `json:"decimals,omitempty"`
+	FreezeAuthority   string    `json:"freeze_authority,omitempty"`
+	MintAuthority     string    `json:"freeze_mint_authority,omitempty"`
+	MintedAt          time.Time `json:"minted_at,omitempty"`
+	Name              string    `json:"name,omitempty"`
+	PermanentDelegate string    `json:"permanent_delegate,omitempty"`
+	Symbol            string    `json:"symbol,omitempty"`
+	Price             float64   `json:"price,omitempty"`
+	Balance           float64   `json:"balance,omitempty"`
+	USDValue          float64   `json:"usd_value,omitempty"`
 }
 
 // getTokenInfo fetches token metadata from Jupiter and caches it.

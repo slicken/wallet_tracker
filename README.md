@@ -4,11 +4,10 @@ A Solana wallet tracker that subscribes to wallet account and look for changes.
 Filter results with Include, Exclude lists, token Balance and or USD Value.
 
 ## Futures
-- blazing fast
 - custom rpc
 - custom ws
 - rate limiter
-- retry on error
+- retry on request error
 - tracks multiple wallets
 - filter changes made only by wallet owner
 - filter by account change percent
@@ -37,43 +36,44 @@ TODO:
 ### Usage
 
 ```bash
-$ ./walletTracker -h 
-Usage ./walletTracker <FILE> [OPTIONAL] ...
+$ ./wallet_tracker -h 
+Usage ./wallet_tracker <FILE> [OPTIONAL] ...
 
 Required:
-	<FILE>               Path to configuration file
+    <FILE>               Path to configuration file
 
 Optional:
-	--signed bool        Only show changes that is signed by wallet (default: false)
-	--debug  bool        Debug mode (default: false)
-	-h,--help            Show help message
+    --blance bool        Show all token balance on program start (default: false)
+    --all bool           Only show balance changes signed by wallet (default: false)
+    --verbose  bool      Verbose mode. Show all messages (default: false)
+    -h,--help            Show help message
 
 Example:
-	./walletTracker wallet.config.json --signed true --debug
+    ./wallet_tracker wallet.config.json --all --balance -verbose
 
 ```
 ```bash
-2025/02/21 14:32:03 Loaded app settings from 'dave_portnoy.json'.
-2025/02/21 14:32:03 Loaded token store from 'token_data.json'.
-2025/02/21 14:32:03 Initalizing wallets and fetching token metadata.
-2025/02/21 14:32:03 This process may take longer for wallets with a large number of tokens...
-2025/02/21 14:32:14 Updated> 5rkPDK4JnVAumgzeV2Zu8vjggMTtHdDtrsd5o9dhGZHD (3525 tokens) in 9s.
-2025/02/21 14:32:14 5rkP> HallaTomas    25000000      $949081404956  8MnF4AJbY2wGqkeqFXixBYKhU81Gs4c4hueJFeS8YKMd
-2025/02/21 14:32:14 5rkP> Putin         300000000     $640687303406  EaNirdXSTRFus3WvBnfHN5Zn85sNZnP9ekgLQxfGkr3o
-2025/02/21 14:32:14 5rkP> EMA           60793000      $589291051801  3FQaXsbLrwPiMnWZkx7w3QcY5HYvBEKcJsfBfGhGRQUi
-2025/02/21 14:32:14 5rkP> OS            833333        $43859168897   5NFeJPEzquryBguZLz9uH2s2scN2ntWBH34o2zAwga9D
-2025/02/21 14:32:14 5rkP> PI            800000000     $29063574788   5GjWhPggud1NUGbejPGghRVusfRh1uGPX8ePGHPiY7ej
-2025/02/21 14:32:14 5rkP> Barstools     915000000     $23273467958   7Zm96XEh1onLDnF4NEDNefvnNFvYBxcGRCwoX449NJfs
-2025/02/21 14:32:14 5rkP> Barron        44182850      $7933281389    GNYkNA2ibw6MP4HGgBJg6EvspqH1oQteB5HjUodogM98
-2025/02/21 14:32:14 5rkP> DAVE          500000000     $634297000     9a3xSX8hTTCfD6Z4CeswpDT4iACfFyxo3DugBtkfvk2L
-2025/02/21 14:32:14 5rkP> Freetool      930000000     $61464068      FMvZph9UyckDcgyMXzqvrH7tdVEa9Kcaf7nHxzeEkR7b
-2025/02/21 14:32:14 5rkP> SHORTNOY      17295708      $29577408      DNBXFzxfV9hqf9fZD7Mvm8aYnuZXuU6kGRV2nRRep1eL
-2025/02/21 14:32:14 5rkP> ... and 3515 more tokens ...
-2025/02/21 14:32:14 Enstablished connection to wss://solana-api.projectserum.com
-2025/02/21 14:32:14 Subscribe to account changes for wallet 5rkPDK4JnVAumgzeV2Zu8vjggMTtHdDtrsd5o9dhGZHD
-2025/02/21 14:32:49 5rkP> UPDATE shortnoy     +6.900158      $+0.000058      A4PWgKGXSPYnjk9ZkTbXhJASUpCqgUSHVTbvPruPpump
-2025/02/21 14:33:51 5rkP> UPDATE shortnoy     +6.900158      $+0.000058      A4PWgKGXSPYnjk9ZkTbXhJASUpCqgUSHVTbvPruPpump
-2025/02/21 14:34:49 5rkP> UPDATE shortnoy     +6.900158      $+0.000058      A4PWgKGXSPYnjk9ZkTbXhJASUpCqgUSHVTbvPruPpump
+2025/02/23 02:26:08 Verbose is 'enabled'.
+2025/02/23 02:26:08 Loaded app settings from 'test.json'.
+2025/02/23 02:26:08 Loaded token store from 'token_data.json'.
+2025/02/23 02:26:08 Downloading token metadata for 1 wallet accounts.
+2025/02/23 02:26:08 Fetched 5 token accounts for program TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA
+2025/02/23 02:26:08 Fetched 0 token accounts for program TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb
+2025/02/23 02:26:08 Updated> 5cPP5n3SUTf6CSgkLhSPY2VNhMiWwzpNBtAH5R7rUPhB (6 tokens) in 0s.
+2025/02/23 02:26:08 5cPP> USDC          24813         $24814          EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v
+2025/02/23 02:26:08 5cPP> JupSOL        100           $18628          jupSoLaHXQiZZTSfEWMTRRgpnyFm8f6sZdosWBjx93v
+2025/02/23 02:26:08 5cPP> SOL           0             $57             So11111111111111111111111111111111111111112
+2025/02/23 02:26:08 5cPP> RAY           2             $10             4k3Dyjzvzp8eMZWUXbBCjEvwSkkk59S5iCNLY3QrkX6R
+2025/02/23 02:26:08 5cPP> HOPE          12148         $0              3zAjZYeTtMxrEFfjuoweJ4mKfr6FvLBreCNxi3duKsas
+2025/02/23 02:26:08 5cPP> K9            239           $0              4kGcHzt91xVk6hyJYBK1yuF6sGCjeJ9PXed3G7pw9rtY
+2025/02/23 02:26:09 Established connection to wss://solana-api.projectserum.com.
+2025/02/23 02:26:09 Subscribed to transaction logs for wallet account 8cui5n3SUTf6CSgkLhSPY2VNhMiWwzpNBtAH5R7rUPhB
+2025/02/23 02:26:37 5cPP> Tx: kmyhiZazL1kYS4PrgmX67zJL4BG8hYNwHzCdAstfmHNwHhiMGTqgkXQrmGz4f4BWXsrDkRpVCCkXQrx5SzMVaFBs
+2025/02/23 02:26:37 5cPP> USDC         +10            $+10            EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v   SWAP  
+2025/02/23 02:26:38 5cPP> RAY          -2             $-10            4k3Dyjzvzp8eMZWUXbBCjEvwSkkk59S5iCNLY3QrkX6R   SOLD ALL
+2025/02/23 02:26:42 5cPP> Tx: ff9Cstub1Mt2TpMuJSbXJj6dz3eC4aCMPRYifr6F8oyQv2FG1sqoMjeHDLSatC6VGEWwtjNgWkd3CJT1VoEQEup
+2025/02/23 02:26:42 5cPP> Transaction is not signed by this wallet account!
+2025/02/23 03:02:49 5cPP> shortnoy     +6.900158      $+0.000058     A4PWgKGXSPYnjk9ZkTbXhJASUpCqgUSHVTbvPruPpump
 ```
 
 ### Create your app configuration file (required)
@@ -82,7 +82,7 @@ Example:
   "CustomRPC": "https://api.mainnet-beta.solana.com",
   "CustomWS": "",
   "Wallets": [
-    "5rkPDK4JnVAumgzeV2Zu8vjggMTtHdDtrsd5o9dhGZHD"
+    "5cPP5n3SUTf6CSgkLhSPY2VNhMiWwzpNBtAH5R7rUPhB"
   ],
   "ChangePercent": 0,
   "ChangeValueUSD": 0,

@@ -24,12 +24,14 @@ import (
 )
 
 type Wallet struct {
-	Address    string               // Wallet address
-	Name       string               // Wallet name
-	PubKey     solana.PublicKey     // Wallet public key
-	Token      map[string]TokenInfo // Map of token addresses to TokenInfo
-	Skip       map[string]TokenInfo // Map of tokens to skip
-	LastUpdate time.Time            // Last update time
+	Address string               // Wallet address
+	Name    string               // Wallet name
+	PubKey  solana.PublicKey     // Wallet public key
+	Token   map[string]TokenInfo // Map of token addresses to TokenInfo
+	skip    map[string]TokenInfo // Map of tokens to skip (no pricedata)
+
+	// dont save tokenData, save wallet as separate file instead
+	// integrate Skip in wallet instead of global skip
 }
 
 var (
@@ -54,13 +56,14 @@ func main() {
 		fmt.Printf(`Usage %s <FILE> [OPTIONAL] ...
 
 Required:
-    <FILE>               Path to configuration file
+    <FILE>               Path to app configuration file
 
 Optional:
-    --tokens bool        Show token balance on program start (default: false)
-    --all bool           Only show balance changes signed by account (default: false)
-    --verbose  bool      Verbose mode. Show all messages (default: false)
-    -h,--help            Show help message
+    --balance bool       Show token balance on program start (default: false)
+    --all bool           Show all token transactions accociated with account wallet (default: false)
+    --verbose  bool      Show all messages (default: false)
+    --help,-h            Show this help message
+
 
 Example:
     %s wallet.config.json --all --balance -verbose
@@ -89,8 +92,10 @@ Example:
 	if verbose {
 		log.Println("Verbose is 'enabled'.")
 	}
-	if !showTransactions {
-		log.Println("All is disabled. Will only display token changes signed by account")
+	if showTransactions {
+		log.Println("Showing all transactinos accosiated with account wallet.")
+	} else {
+		log.Println("Showing transactions signed by account wallet.")
 	}
 
 	// Notify the channel for SIGINT (Ctrl+C) and SIGTERM (termination signal)
@@ -139,7 +144,7 @@ Example:
 		for _, addr := range config.Wallets {
 			// Update wallet balances and token metadata
 			dur := updateWalletBalanceAndPrices(client, addr)
-			log.Printf("Updated> %s %s(%d tokens) in %v.", addr, walletMap[addr].Name, len(walletMap[addr].Token), dur)
+			log.Printf("Updated %s %s(%d tokens) in %v.", addr, walletMap[addr].Name, len(walletMap[addr].Token), dur)
 
 			tokenSlice := make([]TokenInfo, 0, len(walletMap[addr].Token))
 			for _, tokenInfo := range walletMap[addr].Token {

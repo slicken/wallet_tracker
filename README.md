@@ -43,23 +43,25 @@ Required:
     <FILE>               Path to configuration file
 
 Optional:
-    --blance bool        Show all token balance on program start (default: false)
-    --all bool           Only show balance changes signed by wallet (default: false)
-    --verbose  bool      Verbose mode. Show all messages (default: false)
-    -h,--help            Show help message
+    --balance bool       Show token balance on program start (default: false)
+    --all bool           Show all token transactions accociated with account wallet (default: false)
+    --verbose  bool      Show all messages (default: false)
+    --help,-h            Show this help message
 
 Example:
     ./wallet_tracker wallet.config.json --all --balance -verbose
 
 ```
 ```bash
-2025/02/23 02:26:08 Verbose is 'enabled'.
+$ ./wallet_tracker app.config.json --all --balance -verbose
+2025/02/23 02:26:08 Verbose is enabled.
+2025/02/23 02:26:08 Showing all transactinos accosiated with account wallet.
 2025/02/23 02:26:08 Loaded app settings from 'test.json'.
 2025/02/23 02:26:08 Loaded token store from 'token_data.json'.
 2025/02/23 02:26:08 Downloading token metadata for 1 wallet accounts.
 2025/02/23 02:26:08 Fetched 5 token accounts for program TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA
 2025/02/23 02:26:08 Fetched 0 token accounts for program TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb
-2025/02/23 02:26:08 Updated> 5cPP5n3SUTf6CSgkLhSPY2VNhMiWwzpNBtAH5R7rUPhB (6 tokens) in 0s.
+2025/02/23 02:26:08 Updated 5cPP5n3SUTf6CSgkLhSPY2VNhMiWwzpNBtAH5R7rUPhB (6 tokens) in 0s.
 2025/02/23 02:26:08 5cPP> USDC          24813         $24814          EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v
 2025/02/23 02:26:08 5cPP> JupSOL        100           $18628          jupSoLaHXQiZZTSfEWMTRRgpnyFm8f6sZdosWBjx93v
 2025/02/23 02:26:08 5cPP> SOL           0             $57             So11111111111111111111111111111111111111112

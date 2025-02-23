@@ -8,6 +8,7 @@ import (
 	"math"
 	"os"
 	"os/signal"
+	"regexp"
 	"sort"
 	"strings"
 	"sync"
@@ -19,6 +20,7 @@ import (
 	"github.com/gagliardetto/solana-go/programs/token"
 	"github.com/gagliardetto/solana-go/rpc"
 	"github.com/gagliardetto/solana-go/rpc/ws"
+	"github.com/mr-tron/base58"
 )
 
 type Wallet struct {
@@ -33,18 +35,18 @@ type Wallet struct {
 var (
 	walletMap = make(map[string]*Wallet) // Map of wallet addresses to Wallet struct
 
-	balance = false
-	all     = false
-	verbose = false
-	client  *rpc.Client
-	mu      sync.Mutex // Mutex for synchronization
-	wg      sync.WaitGroup
+	showBalance      = false
+	showTransactions = false
+	verbose          = false
+	client           *rpc.Client
+	mu               sync.Mutex // Mutex for synchronization
+	wg               sync.WaitGroup
 )
 
 func main() {
 	// Define flags
-	flag.BoolVar(&balance, "balance", false, "Show all token balances on program start.")
-	flag.BoolVar(&all, "all", false, "Show all transactions associaded with account.")
+	flag.BoolVar(&showBalance, "balance", false, "Show all token balances on program start.")
+	flag.BoolVar(&showTransactions, "all", false, "Show all transactions associaded with account.")
 	flag.BoolVar(&verbose, "verbose", false, "Verbose mode. Show all messages")
 
 	// Custom usage message
@@ -55,7 +57,7 @@ Required:
     <FILE>               Path to configuration file
 
 Optional:
-    --balance bool       Show all token balance on program start (default: false)
+    --tokens bool        Show token balance on program start (default: false)
     --all bool           Only show balance changes signed by account (default: false)
     --verbose  bool      Verbose mode. Show all messages (default: false)
     -h,--help            Show help message
@@ -87,7 +89,7 @@ Example:
 	if verbose {
 		log.Println("Verbose is 'enabled'.")
 	}
-	if !all {
+	if !showTransactions {
 		log.Println("All is disabled. Will only display token changes signed by account")
 	}
 
@@ -131,7 +133,7 @@ Example:
 		log.Fatalf("Failed to load token data: %v", err)
 	}
 
-	if balance {
+	if showBalance {
 		//Fetch and print token account balance (sorted by USDValue in descending order)
 		log.Printf("Downloading token metadata for %d wallet accounts.\n", len(walletMap))
 		for _, addr := range config.Wallets {
@@ -147,7 +149,7 @@ Example:
 				return tokenSlice[i].USDValue > tokenSlice[j].USDValue
 			})
 			for _, tokenInfo := range tokenSlice {
-				log.Printf("%s> %-13s %-13.f $%-13.f %45s\n", addr[:4], tokenInfo.Symbol, tokenInfo.Balance, tokenInfo.USDValue, tokenInfo.Address)
+				log.Printf("%s> %-13s %-13f $%-13.f %45s\n", addr[:4], tokenInfo.Symbol, tokenInfo.Balance, tokenInfo.USDValue, tokenInfo.Address)
 			}
 		}
 	}
@@ -159,7 +161,7 @@ Example:
 	}
 	defer wsClient.Close()
 
-	log.Printf("Established connection to %s.\n", rpc.MainNetBetaSerum_WS)
+	log.Printf("Established connection to %s.\n", rpc.MainNetBeta_WS)
 	// Monitor transactions for each wallet
 
 	ctx := context.Background()
@@ -180,10 +182,23 @@ Example:
 			log.Printf("Subscribed to transaction logs for wallet account %s\n", wallet.Address)
 
 			for {
-				// Wait for log notification
+				// Receive log notification
 				logs, err := sub.Recv(ctx)
 				if err != nil {
 					log.Fatalf("Failed to receive log notification: %v", err)
+				}
+
+				// Skip if transaction failed
+				if logs.Value.Err != nil {
+					continue
+				}
+
+				// Fix this, we want to be able to filter out before RPC call
+				// transactions that is accociated with spam token accounts like
+				// flip.gg, etc.
+				if isLogAssociatedWithIgnoredAccounts(logs, ignoreAccounts) {
+					log.Println("FILTERED OUT FLIP.GG !!!")
+					continue // Skip this log
 				}
 				// Extract the transaction signature from the logs
 				go processTransaction(ctx, client, wallet.Address, logs.Value.Signature)
@@ -193,6 +208,42 @@ Example:
 		}(wallet)
 	}
 	wg.Wait()
+}
+
+// List of accounts to ignore
+var ignoreAccounts = map[string]bool{
+	"Habp5bncMSsBC3vkChyebepym5dcTNRYeg2LVG464E96": true, // Flip.gg
+}
+
+func extractAccountsFromLogs(logs []string) []string {
+	var accounts []string
+	re := regexp.MustCompile(`[1-9A-HJ-NP-Za-km-z]{32,44}`) // Solana account address pattern
+
+	for _, logEntry := range logs {
+		decodedLogEntry, err := base58.Decode(logEntry)
+		if err != nil {
+			continue // Skip if decoding fails
+		}
+
+		matches := re.FindAllString(string(decodedLogEntry), -1)
+		accounts = append(accounts, matches...)
+	}
+
+	return accounts
+}
+
+// Helper function to check if a log is associated with ignored accounts
+func isLogAssociatedWithIgnoredAccounts(logResult *ws.LogResult, ignoreAccounts map[string]bool) bool {
+	// Extract account addresses from the logs
+	accounts := extractAccountsFromLogs(logResult.Value.Logs)
+
+	// Check if any of the extracted accounts are in the ignore list
+	for _, account := range accounts {
+		if ignoreAccounts[account] {
+			return true
+		}
+	}
+	return false
 }
 
 // processTransaction is processing transaction.
@@ -243,7 +294,7 @@ func processTransaction(ctx context.Context, client *rpc.Client, walletAddr stri
 		if verbose {
 			log.Printf("%s> Transaction is not signed by this wallet account!\n", walletAddr[:4])
 		}
-		if !all {
+		if !showTransactions {
 			return
 		}
 	}
@@ -352,10 +403,10 @@ func processTransaction(ctx context.Context, client *rpc.Client, walletAddr stri
 		}
 		// Amounts in green if its a positive value or else in red
 		if balanceChange > 0 {
-			am = fmt.Sprintf("\033[32m%-+14.f\033[0m", balanceChange)
+			am = fmt.Sprintf("\033[32m%-+14f\033[0m", balanceChange)
 			usd = fmt.Sprintf("\033[32m%-+14.f\033[0m", balanceChangeUSD)
 		} else {
-			am = fmt.Sprintf("\033[31m%-+14.f\033[0m", balanceChange)
+			am = fmt.Sprintf("\033[31m%-+14f\033[0m", balanceChange)
 			usd = fmt.Sprintf("\033[31m%-+14.f\033[0m", balanceChangeUSD)
 		}
 

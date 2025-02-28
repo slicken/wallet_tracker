@@ -1,6 +1,4 @@
-config_files
 wallet_tracker
+config_files
 *.json
 *.bak
-wssTracker
-rpcTracker

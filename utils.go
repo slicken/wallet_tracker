@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"log"
@@ -10,7 +11,11 @@ import (
 	"time"
 )
 
-const FILE_TOKEN_DATA = "token_data.json"
+const (
+	FILE_TOKEN_DATA = "token_data.json"
+	USDC            = "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v"
+	SOL             = "So11111111111111111111111111111111111111112"
+)
 
 type TokenStore struct {
 	TokenData  map[string]TokenInfo `json:"tokenData"`
@@ -95,7 +100,7 @@ func LoadTokenData() error {
 
 // retryRPC retries an RPC call with exponential backoff on rate limit errors
 func retryRPC(fn func() error) error {
-	const retries = 9
+	const retries = 3
 	delay := 5 * time.Second
 
 	var err error
@@ -104,8 +109,8 @@ func retryRPC(fn func() error) error {
 			return nil // Success, exit
 		}
 
-		// Check if the error is a rate limit error (HTTP 429)
-		if strings.Contains(err.Error(), "many requests") || strings.Contains(err.Error(), "429") {
+		// Check if the error is transient and worth retrying
+		if isTransientError(err) {
 			if verbose {
 				// Log the function name or HTTP request details
 				pc, _, _, _ := runtime.Caller(1) // Get the caller's function name
@@ -120,9 +125,77 @@ func retryRPC(fn func() error) error {
 			continue
 		}
 
-		// If not a rate limit error, return it
+		//return it if error is not rate limit
 		return err
 	}
 
 	return err
+}
+
+// isTransientError checks if an error is transient and worth retrying
+func isTransientError(err error) bool {
+	if err == nil {
+		return false
+	}
+
+	// Check for rate limit errors (HTTP 429)
+	if strings.Contains(err.Error(), "many requests") || strings.Contains(err.Error(), "429") {
+		return true
+	}
+
+	// Check for network-related errors
+	if strings.Contains(err.Error(), "connection reset by peer") ||
+		strings.Contains(err.Error(), "timeout") ||
+		strings.Contains(err.Error(), "temporary failure") {
+		return true
+	}
+
+	// Check for server errors (HTTP 5xx)
+	if strings.Contains(err.Error(), "500") ||
+		strings.Contains(err.Error(), "502") ||
+		strings.Contains(err.Error(), "503") {
+		return true
+	}
+
+	// Check for context deadline exceeded
+	if err == context.DeadlineExceeded {
+		return true
+	}
+
+	// Add other transient errors as needed
+	return false
+}
+
+var Positions []position
+
+type position struct {
+	mint   string
+	amount float64
+	time   time.Time
+}
+
+func addPosition(mint string, amount float64) {
+	newPosition := position{
+		mint:   mint,
+		amount: amount,
+		time:   time.Now(),
+	}
+	Positions = append(Positions, newPosition)
+}
+
+func removePosition(mint string) {
+	for i, pos := range Positions {
+		if pos.mint == mint {
+			Positions = append(Positions[:i], Positions[i+1:]...)
+		}
+	}
+}
+
+func getPositionAmount(mint string) float64 {
+	for _, pos := range Positions {
+		if pos.mint == mint {
+			return pos.amount
+		}
+	}
+	return 0
 }

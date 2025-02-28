@@ -37,7 +37,7 @@ func getTokenInfo(mint string) (TokenInfo, error) {
 	// If not cached, fetch token info from Jupiter
 	tokenInfo, err := fetchTokenInfoJupiter(mint)
 	if err != nil {
-		return TokenInfo{}, err
+		return tokenInfo, err
 	}
 
 	// Cache price

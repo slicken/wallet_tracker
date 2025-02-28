@@ -8,7 +8,6 @@ import (
 	"math"
 	"os"
 	"os/signal"
-	"regexp"
 	"sort"
 	"strings"
 	"sync"
@@ -20,7 +19,6 @@ import (
 	"github.com/gagliardetto/solana-go/programs/token"
 	"github.com/gagliardetto/solana-go/rpc"
 	"github.com/gagliardetto/solana-go/rpc/ws"
-	"github.com/mr-tron/base58"
 )
 
 type Wallet struct {
@@ -39,6 +37,7 @@ var (
 
 	showBalance      = false
 	showTransactions = false
+	copyTrade        = false
 	verbose          = false
 	client           *rpc.Client
 	mu               sync.Mutex // Mutex for synchronization
@@ -49,7 +48,9 @@ func main() {
 	// Define flags
 	flag.BoolVar(&showBalance, "balance", false, "Show all token balances on program start.")
 	flag.BoolVar(&showTransactions, "all", false, "Show all transactions associaded with account.")
-	flag.BoolVar(&verbose, "verbose", false, "Verbose mode. Show all messages")
+	flag.BoolVar(&verbose, "verbose", false, "Verbose mode. Show all messages.")
+
+	flag.BoolVar(&copyTrade, "copytrade", false, "Buy and sell token swaps signed by wallets.")
 
 	// Custom usage message
 	flag.Usage = func() {
@@ -59,10 +60,11 @@ Required:
     <FILE>               Path to app configuration file
 
 Optional:
-    --balance bool       Show token balance on program start (default: false)
-    --all bool           Show all token transactions accociated with account wallet (default: false)
-    --verbose  bool      Show all messages (default: false)
-    --help,-h            Show this help message
+    --balance bool       Show token balance on program start (default: false).
+    --all bool           Show all token transactions accociated with account wallet (default: false).
+    --verbose  bool      Show all messages (default: false).
+    --copytrade bool     Buy and sell token swaps signed by wallets.
+    --help,-h            Show this help message.
 
 
 Example:
@@ -97,6 +99,9 @@ Example:
 	} else {
 		log.Println("Showing transactions signed by account wallet.")
 	}
+	if copyTrade {
+		log.Println("Copytrade is 'enabled'.")
+	}
 
 	// Notify the channel for SIGINT (Ctrl+C) and SIGTERM (termination signal)
 	sigChan := make(chan os.Signal, 1)
@@ -119,13 +124,17 @@ Example:
 	if err != nil {
 		log.Fatalf("Failed to load app settings: %v", err)
 	}
-
 	log.Printf("Loaded app settings from '%v'.\n", configFile)
+
 	// Initialize RPC client
-	client = rpc.NewWithCustomRPCClient(rpc.NewWithLimiter(config.CustomRPC, 3, 1))
+	networkRPC := rpc.MainNetBeta_RPC
+	if config.Network.CustomRPC != "" {
+		networkRPC = config.Network.CustomRPC
+	}
+	client = rpc.NewWithCustomRPCClient(rpc.NewWithLimiter(networkRPC, 10, 10))
 
 	// Initialize wallet map
-	for _, addr := range config.Wallets {
+	for _, addr := range config.Monitor.Wallets {
 		walletMap[addr] = &Wallet{
 			Address: addr,
 			PubKey:  solana.MustPublicKeyFromBase58(addr),
@@ -141,7 +150,7 @@ Example:
 	if showBalance {
 		//Fetch and print token account balance (sorted by USDValue in descending order)
 		log.Printf("Downloading token metadata for %d wallet accounts.\n", len(walletMap))
-		for _, addr := range config.Wallets {
+		for _, addr := range config.Monitor.Wallets {
 			// Update wallet balances and token metadata
 			dur := updateWalletBalanceAndPrices(client, addr)
 			log.Printf("Updated %s %s(%d tokens) in %v.", addr, walletMap[addr].Name, len(walletMap[addr].Token), dur)
@@ -159,92 +168,84 @@ Example:
 		}
 	}
 
-	// Connect to WebSocket
-	wsClient, err := ws.Connect(context.Background(), rpc.MainNetBeta_WS)
-	if err != nil {
-		panic(err)
+	// ----------------------
+
+	// Initialize WS client
+	networkWS := rpc.MainNetBeta_WS
+	if config.Network.CustomWS != "" {
+		networkWS = config.Network.CustomWS
 	}
-	defer wsClient.Close()
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
 
-	log.Printf("Established connection to %s.\n", rpc.MainNetBeta_WS)
-	// Monitor transactions for each wallet
-
-	ctx := context.Background()
-	for _, wallet := range walletMap {
-		wg.Add(1)
-		go func(wallet *Wallet) {
-			defer wg.Done()
-
-			// Subscribe to log events that mentioning wallet
-			sub, err := wsClient.LogsSubscribeMentions(
-				wallet.PubKey,
-				rpc.CommitmentFinalized,
-			)
-			if err != nil {
-				log.Fatalf("Failed to subscribe to logs: %v", err)
-			}
-			defer sub.Unsubscribe()
-			log.Printf("Subscribed to transaction logs for wallet account %s\n", wallet.Address)
-
-			for {
-				// Receive log notification
-				logs, err := sub.Recv(ctx)
-				if err != nil {
-					log.Fatalf("Failed to receive log notification: %v", err)
-				}
-
-				// Skip if transaction failed
-				if logs.Value.Err != nil {
-					continue
-				}
-
-				// Fix this, we want to be able to filter out before RPC call
-				// transactions that is accociated with spam token accounts like
-				// flip.gg, etc.
-				if isLogAssociatedWithIgnoredAccounts(logs, ignoreAccounts) {
-					log.Println("FILTERED OUT FLIP.GG !!!")
-					continue // Skip this log
-				}
-				// Extract the transaction signature from the logs
-				go processTransaction(ctx, client, wallet.Address, logs.Value.Signature)
-
-			}
-
-		}(wallet)
-	}
-	wg.Wait()
-}
-
-// List of accounts to ignore
-var ignoreAccounts = map[string]bool{
-	"Habp5bncMSsBC3vkChyebepym5dcTNRYeg2LVG464E96": true, // Flip.gg
-}
-
-func extractAccountsFromLogs(logs []string) []string {
-	var accounts []string
-	re := regexp.MustCompile(`[1-9A-HJ-NP-Za-km-z]{32,44}`) // Solana account address pattern
-
-	for _, logEntry := range logs {
-		decodedLogEntry, err := base58.Decode(logEntry)
+	for {
+		// Connect to WebSocket
+		var wsClient *ws.Client
+		err := retryRPC(func() error {
+			var err error
+			wsClient, err = ws.Connect(ctx, networkWS)
+			return err
+		})
 		if err != nil {
-			continue // Skip if decoding fails
+			log.Printf("Failed to connect to WebSocket: %v", err)
+			continue
+		}
+		defer wsClient.Close()
+
+		log.Printf("Established connection to %s.\n", rpc.MainNetBeta_WS)
+		// Monitor transactions for each wallet
+
+		for _, wallet := range walletMap {
+			wg.Add(1)
+			go func(wallet *Wallet) {
+				defer wg.Done()
+
+				for {
+					// Subscribe to log events that mentioning wallet
+					var sub *ws.LogSubscription
+					err := retryRPC(func() error {
+						var err error
+						sub, err = wsClient.LogsSubscribeMentions(wallet.PubKey, rpc.CommitmentFinalized)
+						return err
+					})
+					if err != nil {
+						log.Printf("Failed to subscribe to logs for wallet: %v\n", err)
+						return
+					}
+					defer sub.Unsubscribe()
+					log.Printf("Subscribed to transaction logs for wallet account %s\n", wallet.Address)
+
+					for {
+						// Receive log notification
+						logs, err := sub.Recv(ctx)
+						if err != nil {
+							log.Fatalf("Failed to receive log notification: %v", err)
+						}
+
+						// Skip if transaction failed
+						if logs.Value.Err != nil {
+							continue
+						}
+
+						// Extract the transaction signature from the logs
+						go processTransaction(ctx, client, wallet.Address, logs.Value.Signature)
+
+					}
+				}
+			}(wallet)
 		}
 
-		matches := re.FindAllString(string(decodedLogEntry), -1)
-		accounts = append(accounts, matches...)
-	}
+		wg.Wait()
 
-	return accounts
+		// If we reach here, the connection was lost, and we need to reconnect
+		log.Println("WebSocket connection lost. Reconnecting...")
+	}
 }
 
-// Helper function to check if a log is associated with ignored accounts
-func isLogAssociatedWithIgnoredAccounts(logResult *ws.LogResult, ignoreAccounts map[string]bool) bool {
-	// Extract account addresses from the logs
-	accounts := extractAccountsFromLogs(logResult.Value.Logs)
-
-	// Check if any of the extracted accounts are in the ignore list
-	for _, account := range accounts {
-		if ignoreAccounts[account] {
+// Helper function to check if an address is in the signers list
+func containsSigner(signers []string, address string) bool {
+	for _, signer := range signers {
+		if signer == address {
 			return true
 		}
 	}
@@ -278,7 +279,7 @@ func processTransaction(ctx context.Context, client *rpc.Client, walletAddr stri
 		)
 		// Wrap the error to include "429"
 		if err != nil && strings.Contains(err.Error(), "not found") {
-			err = fmt.Errorf("fakeing 429. we need retry: %w", err)
+			err = fmt.Errorf("fake 429: %w", err)
 		}
 		return err
 	})
@@ -416,9 +417,41 @@ func processTransaction(ctx context.Context, client *rpc.Client, walletAddr stri
 		}
 
 		// Pretty account changes
-		if math.Abs(percentChange) >= config.ChangePercent &&
-			math.Abs(balanceChangeUSD) >= config.ChangeValueUSD {
+		if math.Abs(percentChange) >= config.Monitor.ChangePercent &&
+			math.Abs(balanceChangeUSD) >= config.Monitor.ChangeValueUSD {
 			log.Printf("%4s> %s %s $%s %-46s %-6s\n", walletAddr[:4], symbol, am, usd, preBalance.Mint.String(), action)
+
+			// Copy trade
+			// Copy trade
+			if copyTrade {
+				mint := preBalance.Mint.String()
+
+				if balanceChange > 0 {
+					// Buy token
+					amount, err := swapJupiter(ctx, client, config.ActionWallet.BuyMint, mint, config.ActionWallet.BuyAmount, 0, 0.0002)
+					if err != nil {
+						log.Printf("Failed to buy token: %v", err)
+					}
+					addPosition(mint, amount)
+				} else if balanceChange < 0 && getPositionAmount(mint) > 0 {
+					// Sell token with retry logic
+					err := retryRPC(func() error {
+						var err error
+						_, err = swapJupiter(ctx, client, mint, config.ActionWallet.SellMint, getPositionAmount(mint), 0, 0.0002)
+						if err != nil {
+							log.Printf("Failed to sell token: %v", err)
+							return err // Return the error to trigger a retry
+						}
+						return nil // Success, no retry needed
+					})
+					if err != nil {
+						log.Printf("Failed to sell token after retries: %v", err)
+						continue
+					} else {
+						removePosition(mint)
+					}
+				}
+			}
 		}
 	}
 
@@ -455,7 +488,7 @@ func updateWalletBalanceAndPrices(client *rpc.Client, walletAddr string) time.Du
 		solBalanceInSOL := float64(solBalance.Value) / 1e9
 
 		// Fetch SOL price using Jupiter API
-		solPrice, err := fetchTokenPriceJupiter("So11111111111111111111111111111111111111112") // SOL mint address
+		solPrice, err := fetchTokenPriceJupiter(SOL) // SOL mint address
 		if err != nil {
 			if verbose {
 				log.Printf("failed to fetch SOL price: %v\n", err)
@@ -464,11 +497,11 @@ func updateWalletBalanceAndPrices(client *rpc.Client, walletAddr string) time.Du
 		}
 
 		// Calculate SOL USD value
-		solUSDValue := solBalanceInSOL * solPrice["So11111111111111111111111111111111111111112"]
+		solUSDValue := solBalanceInSOL * solPrice[SOL]
 
 		// Add SOL to the wallet map
-		tokenMap["So11111111111111111111111111111111111111112"] = TokenInfo{
-			Address:  "So11111111111111111111111111111111111111112",
+		tokenMap[SOL] = TokenInfo{
+			Address:  SOL,
 			Symbol:   "SOL",
 			Name:     "Solana",
 			Balance:  solBalanceInSOL,
@@ -605,11 +638,40 @@ func getTokenAccounts(client *rpc.Client, pubKey solana.PublicKey, programID sol
 	return tm, nil
 }
 
+// getTokenBalance retrieves the amount of a token (specified by mint) held by a wallet address.
+func getTokenBalance(client *rpc.Client, wallet, mint string) (float64, error) {
+	// Convert wallet address to solana.PublicKey
+	walletPubkey, err := solana.PublicKeyFromBase58(wallet)
+	if err != nil {
+		return 0, fmt.Errorf("invalid wallet address: %w", err)
+	}
+
+	// Convert mint address to solana.PublicKey
+	mintPubkey, err := solana.PublicKeyFromBase58(mint)
+	if err != nil {
+		return 0, fmt.Errorf("invalid mint address: %w", err)
+	}
+
+	// Find the associated token account for the wallet and mint
+	associatedTokenAccount, _, err := solana.FindAssociatedTokenAddress(walletPubkey, mintPubkey)
+	if err != nil {
+		return 0, fmt.Errorf("failed to find associated token account: %w", err)
+	}
+
+	// Get the token account balance
+	balance, err := client.GetTokenAccountBalance(context.Background(), associatedTokenAccount, rpc.CommitmentConfirmed)
+	if err != nil {
+		return 0, fmt.Errorf("failed to get token account balance: %w", err)
+	}
+
+	return *balance.Value.UiAmount, nil
+}
+
 // includeTokenFilter checks if a token should be included based on the configuration
 func includeTokenFilter(mint string) bool {
 	// If include_tokens is not empty, only include tokens in the list
-	if len(config.IncludeTokens) > 0 {
-		for _, includedMint := range config.IncludeTokens {
+	if len(config.TokenFilter.IncludeTokenList) > 0 {
+		for _, includedMint := range config.TokenFilter.IncludeTokenList {
 			if includedMint == mint {
 				return true
 			}
@@ -618,7 +680,7 @@ func includeTokenFilter(mint string) bool {
 	}
 
 	// If exclude_tokens is not empty, exclude tokens in the list
-	for _, excludedMint := range config.ExcludeTokens {
+	for _, excludedMint := range config.TokenFilter.ExcludeTokenList {
 		if excludedMint == mint {
 			return false
 		}

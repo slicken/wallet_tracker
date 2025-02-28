@@ -8,13 +8,28 @@ import (
 )
 
 type Config struct {
-	CustomRPC      string   `json:"CustomRPC"`
-	CustomWS       string   `json:"CustomWS"`
-	Wallets        []string `json:"Wallets"`
-	ChangePercent  float64  `json:"ChangePercent"`
-	ChangeValueUSD float64  `json:"ChangeValueUSD"`
-	IncludeTokens  []string `json:"IncludeTokenList"`
-	ExcludeTokens  []string `json:"ExcludeTokenList"`
+	Network struct {
+		CustomRPC string `json:"CustomRPC"`
+		CustomWS  string `json:"CustomWS"`
+	} `json:"NETWORK"`
+	Monitor struct {
+		Wallets        []string `json:"Wallets"`
+		ChangePercent  float64  `json:"ChangePercent"`
+		ChangeValueUSD float64  `json:"ChangeValueUSD"`
+		TokenBalance   float64  `json:"TokenBalance"`
+		TokenValueUSD  float64  `json:"TokenValueUSD"`
+	} `json:"MONITOR"`
+	TokenFilter struct {
+		IncludeTokenList []string `json:"IncludeTokenList"`
+		ExcludeTokenList []string `json:"ExcludeTokenList"`
+	} `json:"TOKEN_FILTER"`
+	ActionWallet struct {
+		PublicKey  string  `json:"PublicKey"`
+		PrivateKey string  `json:"PrivateKey"`
+		BuyMint    string  `json:"BuyMint"`
+		SellMint   string  `json:"SellMint"`
+		BuyAmount  float64 `json:"BuyAmount"`
+	} `json:"ACTION_WALLET"`
 }
 
 var config Config

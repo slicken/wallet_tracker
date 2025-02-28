@@ -13,25 +13,13 @@ Filter results with Include, Exclude lists, token Balance and or USD Value.
 - filter by account change percent
 - filter by account change value USD
 - filter include/exclude token list
-- wallet name (if any)              -- not implemented
 - token metadata, and realtime price
 - save token and wallet data        -- needs update
 - debug
 
 TODO:
-- copy trade wallet:
-  - set trade size
-  - set trade vs token (default: sol)
-  - set trade amount
-  - set buy rules
-    - buy once
-    - dca in over N times over T duration
-  - set sell rules
-    - sell once
-    - sell all after T seconds
-    - dca out over N times over T duration
-
-- more ?
+- fix copytrade .. not working well.
+- wallet name (if any)              -- not implemented
 
 ### Usage
 
@@ -43,10 +31,11 @@ Required:
     <FILE>               Path to configuration file
 
 Optional:
-    --balance bool       Show token balance on program start (default: false)
-    --all bool           Show all token transactions accociated with account wallet (default: false)
-    --verbose  bool      Show all messages (default: false)
-    --help,-h            Show this help message
+    --copytrade          Buy and sell token swaps signed by wallets.
+    --balance bool       Show token balance on program start (default: false).
+    --all bool           Show all token transactions accociated with account wallet (default: false).
+    --verbose  bool      Show all messages (default: false).
+    --help,-h            Show this help message.
 
 Example:
     ./wallet_tracker wallet.config.json --all --balance -verbose
@@ -80,15 +69,31 @@ $ ./wallet_tracker app.config.json --all --balance -verbose
 
 ### Create your app configuration file (required)
 ```json
-{
-  "CustomRPC": "https://api.mainnet-beta.solana.com",
-  "CustomWS": "",
-  "Wallets": [
-    "5cPP5n3SUTf6CSgkLhSPY2VNhMiWwzpNBtAH5R7rUPhB"
-  ],
-  "ChangePercent": 0,
-  "ChangeValueUSD": 0,
-  "IncludeTokenList": [],
-  "ExcludeTokenList": []
+i{
+  "NETWORK": {
+    "CustomRPC": "https://api.mainnet-beta.solana.com",
+    "CustomWS": ""
+  },
+
+  "MONITOR": {
+    "Wallets": [
+      "5cPP5n3SUTf6CSgkLhSPY2VNhMiWwzpNBtAH5R7rUPhB"
+    ],
+    "ChangePercent": 0,
+    "ChangeValueUSD": 0,
+    "TokenBalance": 0,
+    "TokenValueUSD": 0
+  },
+  "TOKEN_FILTER": {
+    "IncludeTokenList": [],
+    "ExcludeTokenList": []
+  },
+  "ACTION_WALLET": {
+    "PublicKey": "8D2m4s5EuaDHfBqrBJFZMadVQYe41Eh9jyJWq4mfBFeeR",
+    "PrivateKey": "2gFTtm8mbYErPLJkRx6SV6K3q7PYR7mbRgnMWoX9YWhvZsuunSQE1RN28fDXyCPJjPtJ7FPeDgxSZFeQWFuuoqSm",
+    "BuyMint": "So11111111111111111111111111111111111111112",
+    "BuyAmount": 0.1,
+    "SellMint": "So11111111111111111111111111111111111111112"
+  }
 }
 ```

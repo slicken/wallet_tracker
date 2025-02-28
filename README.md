@@ -89,8 +89,8 @@ i{
     "ExcludeTokenList": []
   },
   "ACTION_WALLET": {
-    "PublicKey": "8D2m4s5EuaDHfBqrBJFZMadVQYe41Eh9jyJWq4mfBFeeR",
-    "PrivateKey": "2gFTtm8mbYErPLJkRx6SV6K3q7PYR7mbRgnMWoX9YWhvZsuunSQE1RN28fDXyCPJjPtJ7FPeDgxSZFeQWFuuoqSm",
+    "PublicKey": "",
+    "PrivateKey": "",
     "BuyMint": "So11111111111111111111111111111111111111112",
     "BuyAmount": 0.1,
     "SellMint": "So11111111111111111111111111111111111111112"

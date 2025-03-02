@@ -11,34 +11,34 @@ import (
 	"strings"
 	"time"
 
+	"github.com/gagliardetto/solana-go"
 	"github.com/gagliardetto/solana-go/rpc/jsonrpc"
 )
 
 const (
-	FILE_TOKEN_DATA = "token_data.json"
-	SOL             = "So11111111111111111111111111111111111111112"
-	USDC            = "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v"
-	USDT            = "Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB"
+	WALLET_DATA_PREFIX = "wallet_"
+	WALLET_DATA_EXT    = ".data"
+
+	SOL  = "So11111111111111111111111111111111111111112"
+	USDC = "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v"
+	USDT = "Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB"
 )
 
-type TokenStore struct {
-	TokenData  map[string]TokenInfo `json:"tokenData"`
-	SkipTokens map[string]bool      `json:"skipTokens"`
+// WalletStore represents a single wallet's stored data
+type WalletStore struct {
+	Name   string               `json:"name"`
+	PubKey solana.PublicKey     `json:"pubkey"`
+	Token  map[string]TokenInfo `json:"tokens"`
+	Skip   map[string]TokenInfo `json:"skip"`
 }
 
-var (
-	// token data
-	tokenData  = make(map[string]TokenInfo)
-	skipTokens = make(map[string]bool)
-)
-
 // calculate the amount of token in lamports
-func UiToLamport(amount float64, mint string) int64 {
+func UiToLamport(amount float64, mint string, wallet *Wallet) int64 {
 	var decimal float64
 	if mint == SOL {
 		decimal = 9
 	} else {
-		outputTokendata, exist := tokenData[mint]
+		outputTokendata, exist := wallet.Token[mint]
 		if !exist {
 			decimal = 6
 			log.Printf("No metadata found for mint: %s. Using standard decimals: %f\n", mint, decimal)
@@ -51,12 +51,12 @@ func UiToLamport(amount float64, mint string) int64 {
 }
 
 // calculate the amount of token in UI
-func LamportToUi(amount int64, mint string) float64 {
+func LamportToUi(amount int64, mint string, wallet *Wallet) float64 {
 	var decimal float64
 	if mint == SOL {
 		decimal = 9
 	} else {
-		outputTokendata, exist := tokenData[mint]
+		outputTokendata, exist := wallet.Token[mint]
 		if !exist {
 			decimal = 6
 			log.Printf("No metadata found for mint: %s. Using standard decimals: %f\n", mint, decimal)
@@ -68,64 +68,84 @@ func LamportToUi(amount int64, mint string) float64 {
 	return float64(amount) / math.Pow(10, decimal)
 }
 
-// Saves token data to a file
-func SaveTokenData() error {
-	// Create the merged data structure
-	store := TokenStore{
-		TokenData:  tokenData,
-		SkipTokens: skipTokens,
+// SaveWallets saves each wallet's data to a separate file
+func SaveWallets() error {
+	for addr, wallet := range walletMap {
+		store := WalletStore{
+			Name:   wallet.Name,
+			PubKey: wallet.PubKey,
+			Token:  wallet.Token,
+			Skip:   wallet.Skip,
+		}
+
+		filename := fmt.Sprintf("%s%s%s", WALLET_DATA_PREFIX, addr[:8], WALLET_DATA_EXT)
+		data, err := json.MarshalIndent(store, "", "  ")
+		if err != nil {
+			return fmt.Errorf("failed to marshal wallet data for %s: %v", addr, err)
+		}
+
+		if err := os.WriteFile(filename, data, 0644); err != nil {
+			return fmt.Errorf("failed to write wallet data to file %s: %v", filename, err)
+		}
+
+		if verbose {
+			log.Printf("Saved wallet data for %s to %s\n", addr, filename)
+		}
 	}
 
-	// Convert the struct to JSON with indentation
-	data, err := json.MarshalIndent(store, "", "  ") // Indent with 2 spaces
-	if err != nil {
-		return fmt.Errorf("failed to marshal token store: %v", err)
-	}
-
-	// Write the JSON data to the file
-	err = os.WriteFile(FILE_TOKEN_DATA, data, 0644)
-	if err != nil {
-		return fmt.Errorf("failed to write token store to file: %v", err)
-	}
-
-	log.Println("Token store saved successfully!")
+	log.Printf("Saved data for %d wallets\n", len(walletMap))
 	return nil
 }
 
-// Loads token data from file
-func LoadTokenData() error {
-	// Initialize tokenData and skipTokens
-	tokenData = make(map[string]TokenInfo)
-	skipTokens = make(map[string]bool)
+// LoadWallets loads wallet data from separate files
+func LoadWallets() error {
+	loadedCount := 0
 
-	// Check if the file exists
-	if _, err := os.Stat(FILE_TOKEN_DATA); os.IsNotExist(err) {
-		log.Printf("Warning: %s not found. Initialized empty token store.\n", FILE_TOKEN_DATA)
-		return nil
+	// For each wallet in config, try to load its data file
+	for _, addr := range config.Monitor.Wallets {
+		filename := fmt.Sprintf("%s%s%s", WALLET_DATA_PREFIX, addr[:8], WALLET_DATA_EXT)
+
+		data, err := os.ReadFile(filename)
+		if err != nil {
+			// Initialize empty wallet if file doesn't exist
+			walletMap[addr] = &Wallet{
+				Name:   "", // Can be set later if needed
+				PubKey: solana.MustPublicKeyFromBase58(addr),
+				Token:  make(map[string]TokenInfo),
+				Skip:   make(map[string]TokenInfo),
+			}
+			if verbose {
+				log.Printf("Initialized empty data for wallet %s\n", addr)
+			}
+			continue
+		}
+
+		var store WalletStore
+		if err := json.Unmarshal(data, &store); err != nil {
+			log.Printf("Warning: failed to unmarshal wallet data from %s: %v\n", filename, err)
+			continue
+		}
+
+		// Verify this is the correct wallet file using PubKey instead of Address
+		if store.PubKey.String() != addr {
+			continue
+		}
+
+		// Initialize or update wallet in walletMap
+		walletMap[addr] = &Wallet{
+			Name:   store.Name,
+			PubKey: store.PubKey,
+			Token:  store.Token,
+			Skip:   store.Skip,
+		}
+
+		loadedCount++
+		if verbose {
+			log.Printf("Loaded wallet data for %s from %s\n", addr, filename)
+		}
 	}
 
-	// Read the file content
-	data, err := os.ReadFile(FILE_TOKEN_DATA)
-	if err != nil {
-		return fmt.Errorf("failed to read token store file: %v", err)
-	}
-
-	// Decode the JSON data into the TokenStore struct
-	var store TokenStore
-	err = json.Unmarshal(data, &store)
-	if err != nil {
-		return fmt.Errorf("failed to unmarshal token store: %v", err)
-	}
-
-	// Populate tokenData and skipTokens
-	if store.TokenData != nil {
-		tokenData = store.TokenData
-	}
-	if store.SkipTokens != nil {
-		skipTokens = store.SkipTokens
-	}
-
-	log.Printf("Loaded token store from '%s'.\n", FILE_TOKEN_DATA)
+	log.Printf("Loaded data for %d wallets\n", loadedCount)
 	return nil
 }
 

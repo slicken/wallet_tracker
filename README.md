@@ -1,25 +1,25 @@
 # solana wallet tacker
 
-A Solana wallet tracker that subscribes to wallet account and look for changes.
-Filter results with Include, Exclude lists, token Balance and or USD Value.
+A Solana wallet tracker that subscribes to wallet account and look for balance and token account changes.
+Copytrade the wallets and apply filters and rules for how long we want to hold token, sell when owner does and more.
 
 ## Futures
 - custom rpc
 - custom ws
 - rate limiter
-- retry on request error
+- retry on rpc error
 - tracks multiple wallets
 - filter changes made only by wallet owner
 - filter by account change percent
 - filter by account change value USD
 - filter include/exclude token list
-- token metadata, and realtime price
-- save token and wallet data        -- needs update
-- debug
+- get token metadata, and realtime price
+- copytrade wallets
+- save wallet settngs
 
 TODO:
-- fix copytrade .. not working well.
-- wallet name (if any)              -- not implemented
+- update copytrade functionality. add more options
+- implement .sol wallet names for easier tracking
 
 ### Usage
 

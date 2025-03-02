@@ -28,9 +28,9 @@ type TokenInfo struct {
 }
 
 // GetTokenInfo fetches token metadata from Jupiter and caches it.
-func GetTokenInfo(mint string) (TokenInfo, error) {
+func GetTokenInfo(mint string, wallet *Wallet) (TokenInfo, error) {
 	// Check if the token info is already cached
-	if cachedTokenInfo, exists := tokenData[mint]; exists {
+	if cachedTokenInfo, exists := wallet.Token[mint]; exists {
 		return cachedTokenInfo, nil
 	}
 
@@ -41,7 +41,7 @@ func GetTokenInfo(mint string) (TokenInfo, error) {
 	}
 
 	// Cache price
-	tokenData[mint] = tokenInfo
+	wallet.Token[mint] = tokenInfo
 	return tokenInfo, err
 }
 
@@ -82,9 +82,9 @@ func getTokenPrice(mints ...string) (map[string]float64, error) {
 }
 
 // GetTokenInfoAndPrice gets token metadata and price from Jupiter.
-func GetTokenInfoAndPrice(mint string) (TokenInfo, error) {
+func GetTokenInfoAndPrice(mint string, wallet *Wallet) (TokenInfo, error) {
 	// Check if the token info is already cached
-	if cachedTokenInfo, exists := tokenData[mint]; exists && cachedTokenInfo.Name != "" {
+	if cachedTokenInfo, exists := wallet.Token[mint]; exists && cachedTokenInfo.Name != "" {
 		// Fetch the price for the cached token
 		usdPrice, err := fetchTokenPriceJupiter(mint)
 		if err != nil {
@@ -107,13 +107,13 @@ func GetTokenInfoAndPrice(mint string) (TokenInfo, error) {
 	// Fetch token price using Jupiter API
 	usdPrice, err := fetchTokenPriceJupiter(mint)
 	if err != nil {
-		tokenData[mint] = tokenInfo
+		wallet.Token[mint] = tokenInfo
 		return tokenInfo, err
 	}
 
 	// Cache price
 	tokenInfo.Price = usdPrice[mint]
-	tokenData[mint] = tokenInfo
+	wallet.Token[mint] = tokenInfo
 	return tokenInfo, err
 }
 

@@ -21,14 +21,10 @@ import (
 )
 
 type Wallet struct {
-	Address string               // Wallet address
-	Name    string               // Wallet name
-	PubKey  solana.PublicKey     // Wallet public key
-	Token   map[string]TokenInfo // Map of token addresses to TokenInfo
-	skip    map[string]TokenInfo // Map of tokens to skip (no pricedata)
-
-	// dont save tokenData, save wallet as separate file instead
-	// integrate Skip in wallet instead of global skip
+	Name   string               // Wallet name
+	PubKey solana.PublicKey     // Wallet public key
+	Token  map[string]TokenInfo // Map of token addresses to TokenInfo
+	Skip   map[string]TokenInfo // Map of tokens to skip (no pricedata)
 }
 
 var (
@@ -103,7 +99,7 @@ Example:
 
 		client.Close()
 		// Save token data
-		if err := SaveTokenData(); err != nil {
+		if err := SaveWallets(); err != nil {
 			log.Fatalf("Failed to save token store: %v", err)
 		}
 		os.Exit(0)
@@ -123,48 +119,42 @@ Example:
 	}
 	client = rpc.NewWithCustomRPCClient(rpc.NewWithLimiter(networkRPC, 10, 10))
 
-	// Initialize wallet map
-	for _, addr := range config.Monitor.Wallets {
-		walletMap[addr] = &Wallet{
-			Address: addr,
-			PubKey:  solana.MustPublicKeyFromBase58(addr),
-			Token:   make(map[string]TokenInfo),
-		}
-	}
+	// // Initialize wallet map
+	// for _, addr := range config.Monitor.Wallets {
+	// 	walletMap[addr] = &Wallet{
+	// 		PubKey: solana.MustPublicKeyFromBase58(addr),
+	// 		Token:  make(map[string]TokenInfo),
+	// 	}
+	// }
 
 	// Load token data
-	if err := LoadTokenData(); err != nil {
+	if err := LoadWallets(); err != nil {
 		log.Fatalf("Failed to load token data: %v", err)
 	}
 
 	if showBalance {
 		//Fetch and print token account balance (sorted by USDValue in descending order)
 		log.Printf("Downloading token metadata for %d wallet accounts.\n", len(walletMap))
-		for _, addr := range config.Monitor.Wallets {
+		for _, wallet := range walletMap {
 			// Update wallet balances and token metadata
-			dur := updateWalletBalanceAndPrices(client, addr)
-			log.Printf("Updated %s %s(%d tokens) in %v.", addr, walletMap[addr].Name, len(walletMap[addr].Token), dur)
+			dur := updateWalletBalanceAndPrices(client, wallet)
+			log.Printf("Updated %s %s(%d tokens) in %v.", wallet.PubKey.String(), wallet.Name, len(wallet.Token), dur)
 
-			tokenSlice := make([]TokenInfo, 0, len(walletMap[addr].Token))
-			for _, tokenInfo := range walletMap[addr].Token {
+			tokenSlice := make([]TokenInfo, 0, len(wallet.Token))
+			for _, tokenInfo := range wallet.Token {
 				tokenSlice = append(tokenSlice, tokenInfo)
 			}
 			sort.Slice(tokenSlice, func(i, j int) bool {
 				return tokenSlice[i].USDValue > tokenSlice[j].USDValue
 			})
 			for _, tokenInfo := range tokenSlice {
-				log.Printf("%s> %-13s %-13f $%-13.f %45s\n", addr[:4], tokenInfo.Symbol, tokenInfo.Balance, tokenInfo.USDValue, tokenInfo.Address)
+				log.Printf("%s> %-13s %-13f $%-13.f %45s\n", wallet.PubKey.String()[:4], tokenInfo.Symbol, tokenInfo.Balance, tokenInfo.USDValue, tokenInfo.Address)
 			}
 		}
 	}
 
 	// ----------------------
 
-	_, err = swapJupiter(context.TODO(), client, config.ActionWallet.BuyMint, USDC, 100, 0, 0)
-	if err != nil {
-		log.Printf("Failed to buy token: %v", err)
-	}
-	os.Exit(0)
 	// Initialize WS client
 	networkWS := rpc.MainNetBeta_WS
 	if config.Network.CustomWS != "" {
@@ -211,7 +201,7 @@ Example:
 						return
 					}
 					defer sub.Unsubscribe()
-					log.Printf("Subscribed to transaction logs for wallet account %s\n", wallet.Address)
+					log.Printf("Subscribed to transaction logs for wallet account %s\n", wallet.PubKey.String())
 
 					for {
 						// Receive log notification
@@ -227,7 +217,7 @@ Example:
 						}
 
 						// Extract the transaction signature from the logs
-						go processTransaction(ctx, client, wallet.Address, logs.Value.Signature)
+						go processTransaction(ctx, client, wallet, logs.Value.Signature)
 					}
 				}
 			}(wallet)
@@ -241,16 +231,16 @@ Example:
 }
 
 // processTransaction is processing transaction.
-func processTransaction(ctx context.Context, client *rpc.Client, walletAddr string, sig solana.Signature) {
+func processTransaction(ctx context.Context, client *rpc.Client, wallet *Wallet, sig solana.Signature) {
 	// pubKey for wallet address
-	pubKey, err := solana.PublicKeyFromBase58(walletAddr)
+	pubKey, err := solana.PublicKeyFromBase58(wallet.PubKey.String())
 	if err != nil {
-		log.Fatalf("Failed to get public key for wallet %s: %v", walletAddr, err)
+		log.Fatalf("Failed to get public key for wallet %s: %v", wallet.PubKey.String(), err)
 	}
 
 	// Print transaction ID
 	if verbose {
-		log.Printf("%s> Tx: %s\n", walletAddr[:4], sig.String())
+		log.Printf("%s> Tx: %s\n", wallet.PubKey.String()[:4], sig.String())
 	}
 
 	// Get transaction details
@@ -282,7 +272,7 @@ func processTransaction(ctx context.Context, client *rpc.Client, walletAddr stri
 	// Check if the wallet account signed this transaction
 	if !transaction.IsSigner(pubKey) {
 		if verbose {
-			log.Printf("%s> Transaction is not signed by this wallet account!\n", walletAddr[:4])
+			log.Printf("%s> Transaction is not signed by this wallet account!\n", wallet.PubKey.String()[:4])
 		}
 		return
 	}
@@ -304,7 +294,7 @@ func processTransaction(ctx context.Context, client *rpc.Client, walletAddr stri
 	txFee := float64(meta.Fee) / 1e9
 
 	if solBalanceChange != 0 {
-		solPrice := tokenData[SOL].Price
+		solPrice := wallet.Token[SOL].Price
 		solBalanceChangeUSD := solBalanceChange * solPrice
 
 		var am string
@@ -318,7 +308,7 @@ func processTransaction(ctx context.Context, client *rpc.Client, walletAddr stri
 		}
 
 		if math.Abs(solBalanceChange+txFee) > 0.000001 {
-			log.Printf("%4s> %-12s %s $%s %-46s %-6s\n", walletAddr[:4], "SOL", am, usd, SOL, "SWAP")
+			log.Printf("%4s> %-12s %s $%s %-46s %-6s\n", wallet.PubKey.String()[:4], "SOL", am, usd, SOL, "SWAP")
 		}
 	}
 
@@ -380,7 +370,7 @@ func processTransaction(ctx context.Context, client *rpc.Client, walletAddr stri
 		}
 
 		// Get TokenData from Jupiter
-		tokenInfo, err := GetTokenInfo(preBalance.Mint.String())
+		tokenInfo, err := GetTokenInfo(preBalance.Mint.String(), wallet)
 		if err != nil {
 			log.Printf("Failed to fetch token metadata for %s: %v\n", preBalance.Mint.String(), err)
 			continue
@@ -427,7 +417,7 @@ func processTransaction(ctx context.Context, client *rpc.Client, walletAddr stri
 		// Pretty account changes
 		if math.Abs(percentChange) >= config.Monitor.ChangePercent &&
 			math.Abs(balanceChangeUSD) >= config.Monitor.ChangeValueUSD {
-			log.Printf("%4s> %s %s $%s %-46s %-6s\n", walletAddr[:4], symbol, am, usd, preBalance.Mint.String(), action)
+			log.Printf("%4s> %s %s $%s %-46s %-6s\n", wallet.PubKey.String()[:4], symbol, am, usd, preBalance.Mint.String(), action)
 
 			// Copy trade
 			if copyTrade {
@@ -436,14 +426,14 @@ func processTransaction(ctx context.Context, client *rpc.Client, walletAddr stri
 				if balanceChange > 0 && mint != SOL && mint != USDC && mint != USDT && mint != config.ActionWallet.SellMint {
 					// Buy token
 					var spendSym string
-					buyToken, ok := tokenData[config.ActionWallet.BuyMint]
+					buyToken, ok := wallet.Token[config.ActionWallet.BuyMint]
 					if !ok {
 						spendSym = fmt.Sprintf("%s..", config.ActionWallet.BuyMint[:4])
 					} else {
 						spendSym = buyToken.Symbol
 					}
 					log.Printf("Swapping %f %s -> %s\n", config.ActionWallet.BuyAmount, spendSym, tokenInfo.Symbol)
-					buyLamport := UiToLamport(config.ActionWallet.BuyAmount, config.ActionWallet.BuyMint)
+					buyLamport := UiToLamport(config.ActionWallet.BuyAmount, config.ActionWallet.BuyMint, wallet)
 
 					amount, err := swapJupiter(ctx, client, config.ActionWallet.BuyMint, mint, buyLamport, 0, 0)
 					if err != nil {
@@ -451,12 +441,12 @@ func processTransaction(ctx context.Context, client *rpc.Client, walletAddr stri
 					}
 					addPosition(mint, amount)
 					if verbose {
-						log.Printf("Added position %s %v\n", tokenData[mint].Symbol, LamportToUi(amount, mint))
+						log.Printf("Added position %s %v\n", wallet.Token[mint].Symbol, LamportToUi(amount, mint, wallet))
 					}
 				} else if balanceChange < 0 && getPositionAmount(mint) > 0 {
 					// Sell token with retry logic
 					var sellSym string
-					sellToken, ok := tokenData[config.ActionWallet.SellMint]
+					sellToken, ok := wallet.Token[config.ActionWallet.SellMint]
 					if !ok {
 						sellSym = fmt.Sprintf("%s..", config.ActionWallet.SellMint[:4])
 					} else {
@@ -468,7 +458,7 @@ func processTransaction(ctx context.Context, client *rpc.Client, walletAddr stri
 						log.Printf("Failed to get token balance: %v", err)
 						continue
 					}
-					sellBalanceLamp := UiToLamport(sellBalance, mint)
+					sellBalanceLamp := UiToLamport(sellBalance, mint, wallet)
 
 					// sellLamport := getPositionAmount(mint)
 					// sellAmount := LamportToUi(getPositionAmount(mint), mint)
@@ -481,7 +471,7 @@ func processTransaction(ctx context.Context, client *rpc.Client, walletAddr stri
 					}
 					removePosition(mint)
 					if verbose {
-						log.Printf("Position %s removed.\n", tokenData[mint].Symbol)
+						log.Printf("Position %s removed.\n", wallet.Token[mint].Symbol)
 					}
 				} else {
 					if verbose {
@@ -497,11 +487,11 @@ func processTransaction(ctx context.Context, client *rpc.Client, walletAddr stri
 	mu.Unlock()
 }
 
-func updateWalletBalanceAndPrices(client *rpc.Client, walletAddr string) time.Duration {
+func updateWalletBalanceAndPrices(client *rpc.Client, wallet *Wallet) time.Duration {
 	// pubKey for wallet address
-	pubKey, err := solana.PublicKeyFromBase58(walletAddr)
+	pubKey, err := solana.PublicKeyFromBase58(wallet.PubKey.String())
 	if err != nil {
-		log.Fatalf("Failed to get public key for wallet %s: %v", walletAddr, err)
+		log.Fatalf("Failed to get public key for wallet %s: %v", wallet.PubKey.String(), err)
 	}
 
 	// main tokens map
@@ -565,18 +555,18 @@ func updateWalletBalanceAndPrices(client *rpc.Client, walletAddr string) time.Du
 
 		// merge tokens to the main map
 		for mint, tokenProgram := range ret {
-			if _, exists := skipTokens[mint]; exists {
+			if _, exists := wallet.Skip[mint]; exists {
 				continue
 			}
 
 			// get token metadata
-			tokenInfo, err := GetTokenInfo(mint)
+			tokenInfo, err := GetTokenInfo(mint, wallet)
 			if err != nil {
 				if verbose {
 					log.Printf("Failed to fetch token metadata for %s: %v\n", mint, err)
 					log.Printf("Added %s to skip-list!\n", mint)
 				}
-				skipTokens[mint] = true
+				wallet.Skip[mint] = tokenInfo
 				continue
 			}
 
@@ -614,16 +604,16 @@ func updateWalletBalanceAndPrices(client *rpc.Client, walletAddr string) time.Du
 		tokenMap[mint] = token
 	}
 
-	// Remove tokens from walletMap that does not exist in tokensMap
-	for mint := range walletMap[walletAddr].Token {
+	// Remove tokens from wallet.Token that does not exist in tokensMap
+	for mint := range wallet.Token {
 		if _, exist := tokenMap[mint]; !exist {
-			delete(walletMap[walletAddr].Token, mint)
+			delete(wallet.Token, mint)
 		}
 	}
 
 	// Copy tokens from tokensMap to the walletMap
 	for mint, token := range tokenMap {
-		walletMap[walletAddr].Token[mint] = token
+		wallet.Token[mint] = token
 	}
 
 	return time.Since(start).Truncate(time.Second)

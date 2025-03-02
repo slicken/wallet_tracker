@@ -31,10 +31,9 @@ Required:
     <FILE>               Path to configuration file
 
 Optional:
-    --copytrade          Buy and sell token swaps signed by wallets.
+    --copytrade bool     Buy and sell token swaps signed by wallets (default: false).
     --balance bool       Show token balance on program start (default: false).
-    --all bool           Show all token transactions accociated with account wallet (default: false).
-    --verbose  bool      Show all messages (default: false).
+    --verbose bool       Show all messages (default: false).
     --help,-h            Show this help message.
 
 Example:
@@ -64,7 +63,7 @@ $ ./wallet_tracker app.config.json --all --balance -verbose
 2025/02/23 02:26:38 5cPP> RAY          -2             $-10            4k3Dyjzvzp8eMZWUXbBCjEvwSkkk59S5iCNLY3QrkX6R   SOLD ALL
 2025/02/23 02:26:42 5cPP> Tx: ff9Cstub1Mt2TpMuJSbXJj6dz3eC4aCMPRYifr6F8oyQv2FG1sqoMjeHDLSatC6VGEWwtjNgWkd3CJT1VoEQEup
 2025/02/23 02:26:42 5cPP> Transaction is not signed by this wallet account!
-2025/02/23 03:02:49 5cPP> shortnoy     +6.900158      $+0.000058     A4PWgKGXSPYnjk9ZkTbXhJASUpCqgUSHVTbvPruPpump
+2025/02/23 03:02:49 5cPP> shortnoy     +6.900158      $+0.000058      A4PWgKGXSPYnjk9ZkTbXhJASUpCqgUSHVTbvPruPpump
 ```
 
 ### Create your app configuration file (required)

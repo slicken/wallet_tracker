@@ -27,8 +27,8 @@ type TokenInfo struct {
 	USDValue          float64   `json:"usd_value,omitempty"`
 }
 
-// getTokenInfo fetches token metadata from Jupiter and caches it.
-func getTokenInfo(mint string) (TokenInfo, error) {
+// GetTokenInfo fetches token metadata from Jupiter and caches it.
+func GetTokenInfo(mint string) (TokenInfo, error) {
 	// Check if the token info is already cached
 	if cachedTokenInfo, exists := tokenData[mint]; exists {
 		return cachedTokenInfo, nil
@@ -81,14 +81,10 @@ func getTokenPrice(mints ...string) (map[string]float64, error) {
 	return prices, nil
 }
 
-// Fetches token metadata and price from Jupiter.
-func fetchTokenMetadataAndPrice(mint string, fetchPrice bool) (TokenInfo, error) {
+// GetTokenInfoAndPrice gets token metadata and price from Jupiter.
+func GetTokenInfoAndPrice(mint string) (TokenInfo, error) {
 	// Check if the token info is already cached
 	if cachedTokenInfo, exists := tokenData[mint]; exists && cachedTokenInfo.Name != "" {
-		if !fetchPrice {
-			return cachedTokenInfo, nil
-		}
-
 		// Fetch the price for the cached token
 		usdPrice, err := fetchTokenPriceJupiter(mint)
 		if err != nil {
@@ -104,13 +100,8 @@ func fetchTokenMetadataAndPrice(mint string, fetchPrice bool) (TokenInfo, error)
 
 	// If not cached, fetch token info from Jupiter
 	tokenInfo, err := fetchTokenInfoJupiter(mint)
-	if err != nil || tokenInfo.Name == "" {
+	if err != nil {
 		return TokenInfo{}, err
-	}
-
-	if !fetchPrice {
-		tokenData[mint] = tokenInfo
-		return tokenInfo, nil
 	}
 
 	// Fetch token price using Jupiter API

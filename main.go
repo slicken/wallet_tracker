@@ -9,7 +9,6 @@ import (
 	"os"
 	"os/signal"
 	"sort"
-	"strings"
 	"sync"
 	"syscall"
 	"time"
@@ -35,22 +34,19 @@ type Wallet struct {
 var (
 	walletMap = make(map[string]*Wallet) // Map of wallet addresses to Wallet struct
 
-	showBalance      = false
-	showTransactions = false
-	copyTrade        = false
-	verbose          = false
-	client           *rpc.Client
-	mu               sync.Mutex // Mutex for synchronization
-	wg               sync.WaitGroup
+	showBalance = false
+	copyTrade   = false
+	verbose     = false
+	client      *rpc.Client
+	mu          sync.Mutex // Mutex for synchronization
+	wg          sync.WaitGroup
 )
 
 func main() {
 	// Define flags
-	flag.BoolVar(&showBalance, "balance", false, "Show all token balances on program start.")
-	flag.BoolVar(&showTransactions, "all", false, "Show all transactions associaded with account.")
-	flag.BoolVar(&verbose, "verbose", false, "Verbose mode. Show all messages.")
-
 	flag.BoolVar(&copyTrade, "copytrade", false, "Buy and sell token swaps signed by wallets.")
+	flag.BoolVar(&showBalance, "balance", false, "Show all token balances on program start.")
+	flag.BoolVar(&verbose, "verbose", false, "Verbose mode. Show all messages.")
 
 	// Custom usage message
 	flag.Usage = func() {
@@ -60,10 +56,9 @@ Required:
     <FILE>               Path to app configuration file
 
 Optional:
+    --copytrade bool     Buy and sell token swaps signed by wallets (default: false).
     --balance bool       Show token balance on program start (default: false).
-    --all bool           Show all token transactions accociated with account wallet (default: false).
-    --verbose  bool      Show all messages (default: false).
-    --copytrade bool     Buy and sell token swaps signed by wallets.
+    --verbose bool       Show all messages (default: false).
     --help,-h            Show this help message.
 
 
@@ -93,11 +88,6 @@ Example:
 
 	if verbose {
 		log.Println("Verbose is 'enabled'.")
-	}
-	if showTransactions {
-		log.Println("Showing all transactinos accosiated with account wallet.")
-	} else {
-		log.Println("Showing transactions signed by account wallet.")
 	}
 	if copyTrade {
 		log.Println("Copytrade is 'enabled'.")
@@ -170,6 +160,11 @@ Example:
 
 	// ----------------------
 
+	_, err = swapJupiter(context.TODO(), client, config.ActionWallet.BuyMint, USDC, 100, 0, 0)
+	if err != nil {
+		log.Printf("Failed to buy token: %v", err)
+	}
+	os.Exit(0)
 	// Initialize WS client
 	networkWS := rpc.MainNetBeta_WS
 	if config.Network.CustomWS != "" {
@@ -193,19 +188,22 @@ Example:
 		defer wsClient.Close()
 
 		log.Printf("Established connection to %s.\n", rpc.MainNetBeta_WS)
-		// Monitor transactions for each wallet
 
+		// Monitor transactions for each wallet
 		for _, wallet := range walletMap {
 			wg.Add(1)
 			go func(wallet *Wallet) {
 				defer wg.Done()
 
 				for {
-					// Subscribe to log events that mentioning wallet
+					// Subscribe to log events that mention the wallet
 					var sub *ws.LogSubscription
 					err := retryRPC(func() error {
 						var err error
-						sub, err = wsClient.LogsSubscribeMentions(wallet.PubKey, rpc.CommitmentFinalized)
+						sub, err = wsClient.LogsSubscribeMentions(
+							wallet.PubKey,
+							rpc.CommitmentFinalized,
+						)
 						return err
 					})
 					if err != nil {
@@ -219,7 +217,8 @@ Example:
 						// Receive log notification
 						logs, err := sub.Recv(ctx)
 						if err != nil {
-							log.Fatalf("Failed to receive log notification: %v", err)
+							log.Printf("Failed to receive log notification: %v. Reconnecting...\n", err)
+							break // Exit inner loop to reconnect
 						}
 
 						// Skip if transaction failed
@@ -229,7 +228,6 @@ Example:
 
 						// Extract the transaction signature from the logs
 						go processTransaction(ctx, client, wallet.Address, logs.Value.Signature)
-
 					}
 				}
 			}(wallet)
@@ -240,16 +238,6 @@ Example:
 		// If we reach here, the connection was lost, and we need to reconnect
 		log.Println("WebSocket connection lost. Reconnecting...")
 	}
-}
-
-// Helper function to check if an address is in the signers list
-func containsSigner(signers []string, address string) bool {
-	for _, signer := range signers {
-		if signer == address {
-			return true
-		}
-	}
-	return false
 }
 
 // processTransaction is processing transaction.
@@ -277,10 +265,6 @@ func processTransaction(ctx context.Context, client *rpc.Client, walletAddr stri
 				MaxSupportedTransactionVersion: new(uint64), // Support all versions
 			},
 		)
-		// Wrap the error to include "429"
-		if err != nil && strings.Contains(err.Error(), "not found") {
-			err = fmt.Errorf("fake 429: %w", err)
-		}
 		return err
 	})
 	if err != nil {
@@ -300,9 +284,7 @@ func processTransaction(ctx context.Context, client *rpc.Client, walletAddr stri
 		if verbose {
 			log.Printf("%s> Transaction is not signed by this wallet account!\n", walletAddr[:4])
 		}
-		if !showTransactions {
-			return
-		}
+		return
 	}
 
 	// Extract token balances before and after the transaction
@@ -312,6 +294,32 @@ func processTransaction(ctx context.Context, client *rpc.Client, walletAddr stri
 			log.Printf("No metadata found for transaction %s\n", sig.String())
 		}
 		return
+	}
+	// Check native SOL balance change
+	solBalanceBefore := int64(meta.PreBalances[0])                      // Convert to signed int64
+	solBalanceAfter := int64(meta.PostBalances[0])                      // Convert to signed int64
+	solBalanceChange := float64(solBalanceAfter-solBalanceBefore) / 1e9 // Convert lamports to SOL
+
+	// Get transaction fee in SOL
+	txFee := float64(meta.Fee) / 1e9
+
+	if solBalanceChange != 0 {
+		solPrice := tokenData[SOL].Price
+		solBalanceChangeUSD := solBalanceChange * solPrice
+
+		var am string
+		var usd string
+		if solBalanceChange > 0 {
+			am = fmt.Sprintf("\033[32m%-+14f\033[0m", solBalanceChange)
+			usd = fmt.Sprintf("\033[32m%-+14.f\033[0m", solBalanceChangeUSD)
+		} else if solBalanceChange < 0 {
+			am = fmt.Sprintf("\033[31m%-+14f\033[0m", solBalanceChange)
+			usd = fmt.Sprintf("\033[31m%-+14.f\033[0m", solBalanceChangeUSD)
+		}
+
+		if math.Abs(solBalanceChange+txFee) > 0.000001 {
+			log.Printf("%4s> %-12s %s $%s %-46s %-6s\n", walletAddr[:4], "SOL", am, usd, SOL, "SWAP")
+		}
 	}
 
 	// Lock the mutex to protect shared resources
@@ -372,7 +380,7 @@ func processTransaction(ctx context.Context, client *rpc.Client, walletAddr stri
 		}
 
 		// Get TokenData from Jupiter
-		tokenInfo, err := getTokenInfo(preBalance.Mint.String())
+		tokenInfo, err := GetTokenInfo(preBalance.Mint.String())
 		if err != nil {
 			log.Printf("Failed to fetch token metadata for %s: %v\n", preBalance.Mint.String(), err)
 			continue
@@ -422,36 +430,66 @@ func processTransaction(ctx context.Context, client *rpc.Client, walletAddr stri
 			log.Printf("%4s> %s %s $%s %-46s %-6s\n", walletAddr[:4], symbol, am, usd, preBalance.Mint.String(), action)
 
 			// Copy trade
-			// Copy trade
 			if copyTrade {
 				mint := preBalance.Mint.String()
 
-				if balanceChange > 0 {
+				if balanceChange > 0 && mint != SOL && mint != USDC && mint != USDT && mint != config.ActionWallet.SellMint {
 					// Buy token
-					amount, err := swapJupiter(ctx, client, config.ActionWallet.BuyMint, mint, config.ActionWallet.BuyAmount, 0, 0.0002)
+					var spendSym string
+					buyToken, ok := tokenData[config.ActionWallet.BuyMint]
+					if !ok {
+						spendSym = fmt.Sprintf("%s..", config.ActionWallet.BuyMint[:4])
+					} else {
+						spendSym = buyToken.Symbol
+					}
+					log.Printf("Swapping %f %s -> %s\n", config.ActionWallet.BuyAmount, spendSym, tokenInfo.Symbol)
+					buyLamport := UiToLamport(config.ActionWallet.BuyAmount, config.ActionWallet.BuyMint)
+
+					amount, err := swapJupiter(ctx, client, config.ActionWallet.BuyMint, mint, buyLamport, 0, 0)
 					if err != nil {
 						log.Printf("Failed to buy token: %v", err)
 					}
 					addPosition(mint, amount)
+					if verbose {
+						log.Printf("Added position %s %v\n", tokenData[mint].Symbol, LamportToUi(amount, mint))
+					}
 				} else if balanceChange < 0 && getPositionAmount(mint) > 0 {
 					// Sell token with retry logic
-					err := retryRPC(func() error {
-						var err error
-						_, err = swapJupiter(ctx, client, mint, config.ActionWallet.SellMint, getPositionAmount(mint), 0, 0.0002)
-						if err != nil {
-							log.Printf("Failed to sell token: %v", err)
-							return err // Return the error to trigger a retry
-						}
-						return nil // Success, no retry needed
-					})
-					if err != nil {
-						log.Printf("Failed to sell token after retries: %v", err)
-						continue
+					var sellSym string
+					sellToken, ok := tokenData[config.ActionWallet.SellMint]
+					if !ok {
+						sellSym = fmt.Sprintf("%s..", config.ActionWallet.SellMint[:4])
 					} else {
-						removePosition(mint)
+						sellSym = sellToken.Symbol
+					}
+
+					sellBalance, err := getTokenBalance(client, config.ActionWallet.PublicKey, mint)
+					if err != nil {
+						log.Printf("Failed to get token balance: %v", err)
+						continue
+					}
+					sellBalanceLamp := UiToLamport(sellBalance, mint)
+
+					// sellLamport := getPositionAmount(mint)
+					// sellAmount := LamportToUi(getPositionAmount(mint), mint)
+					log.Printf("Swapping %f %s -> %s\n", sellBalance, tokenInfo.Symbol, sellSym)
+
+					_, err = swapJupiter(ctx, client, mint, config.ActionWallet.SellMint, sellBalanceLamp, 0, 0)
+					if err != nil {
+						log.Printf("Failed to sell token: %v", err)
+						continue
+					}
+					removePosition(mint)
+					if verbose {
+						log.Printf("Position %s removed.\n", tokenData[mint].Symbol)
+					}
+				} else {
+					if verbose {
+						log.Printf("Skipping trade for %s\n", tokenInfo.Symbol)
 					}
 				}
 			}
+
 		}
 	}
 
@@ -532,7 +570,7 @@ func updateWalletBalanceAndPrices(client *rpc.Client, walletAddr string) time.Du
 			}
 
 			// get token metadata
-			tokenInfo, err := getTokenInfo(mint)
+			tokenInfo, err := GetTokenInfo(mint)
 			if err != nil {
 				if verbose {
 					log.Printf("Failed to fetch token metadata for %s: %v\n", mint, err)

@@ -5,16 +5,20 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"math"
 	"os"
 	"runtime"
 	"strings"
 	"time"
+
+	"github.com/gagliardetto/solana-go/rpc/jsonrpc"
 )
 
 const (
 	FILE_TOKEN_DATA = "token_data.json"
-	USDC            = "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v"
 	SOL             = "So11111111111111111111111111111111111111112"
+	USDC            = "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v"
+	USDT            = "Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB"
 )
 
 type TokenStore struct {
@@ -28,13 +32,40 @@ var (
 	skipTokens = make(map[string]bool)
 )
 
-// Copy Token map
-func CopyTokens(tokens map[string]TokenInfo) map[string]TokenInfo {
-	previousTokens := make(map[string]TokenInfo)
-	for k, v := range tokens {
-		previousTokens[k] = v
+// calculate the amount of token in lamports
+func UiToLamport(amount float64, mint string) int64 {
+	var decimal float64
+	if mint == SOL {
+		decimal = 9
+	} else {
+		outputTokendata, exist := tokenData[mint]
+		if !exist {
+			decimal = 6
+			log.Printf("No metadata found for mint: %s. Using standard decimals: %f\n", mint, decimal)
+		} else {
+			decimal = float64(outputTokendata.Decimals)
+		}
 	}
-	return previousTokens
+
+	return int64(math.Round(amount * math.Pow(10, decimal)))
+}
+
+// calculate the amount of token in UI
+func LamportToUi(amount int64, mint string) float64 {
+	var decimal float64
+	if mint == SOL {
+		decimal = 9
+	} else {
+		outputTokendata, exist := tokenData[mint]
+		if !exist {
+			decimal = 6
+			log.Printf("No metadata found for mint: %s. Using standard decimals: %f\n", mint, decimal)
+		} else {
+			decimal = float64(outputTokendata.Decimals)
+		}
+	}
+
+	return float64(amount) / math.Pow(10, decimal)
 }
 
 // Saves token data to a file
@@ -113,22 +144,23 @@ func retryRPC(fn func() error) error {
 		if isTransientError(err) {
 			if verbose {
 				// Log the function name or HTTP request details
-				pc, _, _, _ := runtime.Caller(1) // Get the caller's function name
+				pc, _, _, _ := runtime.Caller(2) // Get the caller's function name
 				funcName := runtime.FuncForPC(pc).Name()
-				log.Printf("Rate limit hit [%s]. Retrying in %v... (attempt %d/%d)", funcName, delay, i+1, retries)
+				log.Printf("RPC faied! [%s] Retrying in %v... (attempt %d/%d)", funcName, delay, i+1, retries)
 			}
 			time.Sleep(delay)
 			delay *= 2
 			if delay > 15*time.Second {
 				delay = 15 * time.Second
 			}
-			continue
+		} else {
+			break
 		}
-
-		//return it if error is not rate limit
-		return err
 	}
-
+	// If the error is of type *jsonrpc.RPCError, print the message
+	if rpcErr, ok := err.(*jsonrpc.RPCError); ok {
+		return fmt.Errorf("RPC error: %s", rpcErr.Message)
+	}
 	return err
 }
 
@@ -170,11 +202,11 @@ var Positions []position
 
 type position struct {
 	mint   string
-	amount float64
+	amount int64
 	time   time.Time
 }
 
-func addPosition(mint string, amount float64) {
+func addPosition(mint string, amount int64) {
 	newPosition := position{
 		mint:   mint,
 		amount: amount,
@@ -191,7 +223,7 @@ func removePosition(mint string) {
 	}
 }
 
-func getPositionAmount(mint string) float64 {
+func getPositionAmount(mint string) int64 {
 	for _, pos := range Positions {
 		if pos.mint == mint {
 			return pos.amount

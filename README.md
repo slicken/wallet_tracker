@@ -37,11 +37,11 @@ Optional:
     --help,-h            Show this help message.
 
 Example:
-    ./wallet_tracker wallet.config.json --all --balance -verbose
+    ./wallet_tracker wallet.config.json --balance --copytrade
 
 ```
 ```bash
-$ ./wallet_tracker app.config.json --all --balance -verbose
+$ ./wallet_tracker app.config.json --balance --verbose
 2025/02/23 02:26:08 Verbose is enabled.
 2025/02/23 02:26:08 Showing all transactinos accosiated with account wallet.
 2025/02/23 02:26:08 Loaded app settings from 'test.json'.

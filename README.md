@@ -68,7 +68,7 @@ $ ./wallet_tracker app.config.json --all --balance -verbose
 
 ### Create your app configuration file (required)
 ```json
-i{
+{
   "NETWORK": {
     "CustomRPC": "https://api.mainnet-beta.solana.com",
     "CustomWS": ""

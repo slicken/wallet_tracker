@@ -3,7 +3,12 @@
 A Solana wallet tracker that subscribes to wallet account and look for balance and token account changes.
 Copytrade the wallets and apply filters and rules for how long we want to hold token, sell when owner does and more.
 
-TEST: always pink accuse trash topple ridge lunar elbow autumn source onion romance
+Pi
+
+tea
+
+PrivateKey: pink accuse trash topple ridge always lunar elbow autumn source onion
+fa
 
 ## Futures
 - custom rpc

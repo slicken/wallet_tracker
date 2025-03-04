@@ -3,12 +3,8 @@
 A Solana wallet tracker that subscribes to wallet account and look for balance and token account changes.
 Copytrade the wallets and apply filters and rules for how long we want to hold token, sell when owner does and more.
 
-Pi
+solana mnemonic     stove potato lizard diary inherit embody fancy vocal claim away since sibling
 
-tea
-
-PrivateKey: pink accuse trash topple ridge always lunar elbow autumn source onion
-fa
 
 ## Futures
 - custom rpc

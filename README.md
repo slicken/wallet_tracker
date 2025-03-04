@@ -1,13 +1,13 @@
 # solana wallet tacker
 
+$ generateKeys sol -a
+solana public       DZMeYavericqP4uKVz1bjtT1ZAG1Ug26apt7XzmHqau
+solana private      6wosurX6QPXiD3ugLpHduimrUhn9hqBUTJZ879G6hAenm3YZpbfFrfqaN1Q5qTKvAy2Rd4iajehMSb3mVDgwqxy
+solana mnemonic     unfair detect safe weasel direct dress similar allow bird enter spoil dinosaur
+solana derivation   m/44'/501'/0'/0'
+
 A Solana wallet tracker that subscribes to wallet account and look for balance and token account changes.
 Copytrade the wallets and apply filters and rules for how long we want to hold token, sell when owner does and more.
-
-$ generateKeys btc -a
-bitcoin legacy public       1KbddEyhDkFMFaucLAZjsQqW6qYkb3BbbL
-bitcoin legacy private      L45rFJNhnbb14j2rscMRHVdmjvCsEddjdFkXtpVnixbA8qTz3jMv
-bitcoin legacy mnemonic     detail tooth strategy glue alter into cricket brush economy click fix matter glance toilet become glory split wash borrow road street hurdle lift amazing
-bitcoin legacy derivation   m/44'/0'/0'/0/0
 
 ## Futures
 - custom rpc

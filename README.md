@@ -3,7 +3,11 @@
 A Solana wallet tracker that subscribes to wallet account and look for balance and token account changes.
 Copytrade the wallets and apply filters and rules for how long we want to hold token, sell when owner does and more.
 
-solana mnemonic     stove potato lizard diary inherit embody fancy vocal claim away since sibling
+$ generateKeys sol -a
+solana public       8uyRoMFq33QauAn4XhXYRQwGGdmRvX1FomUjeMaAiTkG
+solana private      55WFtd4b6MgUrZfgGMwEKSo264m7rB7EcKZSqJNUdqGqCxUnZTsNCkcyBjK7JNCYBqX6GMpXqqHLGkgYMn27UEp
+solana mnemonic     medal dutch click cloud cover predict athlete live gift arrow ripple keep
+solana derivation   m/44'/501'/0'/0'
 
 
 ## Futures

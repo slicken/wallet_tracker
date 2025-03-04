@@ -3,12 +3,11 @@
 A Solana wallet tracker that subscribes to wallet account and look for balance and token account changes.
 Copytrade the wallets and apply filters and rules for how long we want to hold token, sell when owner does and more.
 
-$ generateKeys sol -a
-solana public       8uyRoMFq33QauAn4XhXYRQwGGdmRvX1FomUjeMaAiTkG
-solana private      55WFtd4b6MgUrZfgGMwEKSo264m7rB7EcKZSqJNUdqGqCxUnZTsNCkcyBjK7JNCYBqX6GMpXqqHLGkgYMn27UEp
-solana mnemonic     medal dutch click cloud cover predict athlete live gift arrow ripple keep
-solana derivation   m/44'/501'/0'/0'
-
+$ generateKeys btc -a
+bitcoin legacy public       1KbddEyhDkFMFaucLAZjsQqW6qYkb3BbbL
+bitcoin legacy private      L45rFJNhnbb14j2rscMRHVdmjvCsEddjdFkXtpVnixbA8qTz3jMv
+bitcoin legacy mnemonic     detail tooth strategy glue alter into cricket brush economy click fix matter glance toilet become glory split wash borrow road street hurdle lift amazing
+bitcoin legacy derivation   m/44'/0'/0'/0/0
 
 ## Futures
 - custom rpc

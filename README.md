@@ -1,10 +1,9 @@
 # solana wallet tacker
 
-generateKeys btc -a
-bitcoin legacy public       1Pxkg1snqWqY6yaB1MeQQQEYgXQnMXBuGS
-bitcoin legacy private      L1CNyS1rp4kptdJEVQ35n9Kixs9qPPJrantGWeFJhUmWYLYVbB7S
-bitcoin legacy mnemonic     noble expand card window disorder again rhythm pencil hello climb little token snap resist live common bulb round battle delay differ reflect alpha sadness
-bitcoin legacy derivation   m/44'/0'/0'/0/0
+solana public       7iN5uMh33C1NSqr1JjwMDtfukfgUj6PnSqnkfzkRrpXP
+solana private      24j3XQ7A9SvH2f2JRmmc9Q4W7tXfycHBc53Ln4m7cV62Xmg3KhPR64WZXUCotZhF41kv2PVWrCRNiC7b7tS2f96d
+solana mnemonic     sniff virus vehicle subject sock conduct voice corn list hawk choice blush
+solana derivation   m/44'/501'/0'/0'
 
 A Solana wallet tracker that subscribes to wallet account and look for balance and token account changes.
 Copytrade the wallets and apply filters and rules for how long we want to hold token, sell when owner does and more.

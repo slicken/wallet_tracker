@@ -125,7 +125,7 @@ func fetchTokenInfoJupiter(mint string) (TokenInfo, error) {
 
 	// Get https data with retry
 	err = retryRPC(func() error {
-		res, err = http.Get("https://api.jup.ag/tokens/v1/token/" + mint)
+		res, err = http.Get("https://token.jup.ag/all")
 		if err != nil {
 			return fmt.Errorf("failed to send HTTP request: %v", err)
 		}
@@ -135,11 +135,6 @@ func fetchTokenInfoJupiter(mint string) (TokenInfo, error) {
 		body, err = io.ReadAll(res.Body)
 		if err != nil {
 			return fmt.Errorf("failed to read response body: %v", err)
-		}
-
-		// Check if the response contains "not found"
-		if strings.Contains(string(body), "not found") {
-			return fmt.Errorf("not found")
 		}
 
 		// Check for non-200 status codes
@@ -153,68 +148,117 @@ func fetchTokenInfoJupiter(mint string) (TokenInfo, error) {
 		return TokenInfo{}, err
 	}
 
-	// Unmarshal the JSON response
-	var tokenInfo TokenInfo
-	err = json.Unmarshal(body, &tokenInfo)
+	// Parse the response to find the specific token
+	var tokens []TokenInfo
+	err = json.Unmarshal(body, &tokens)
 	if err != nil {
 		return TokenInfo{}, fmt.Errorf("failed to unmarshal JSON response: %v", err)
 	}
 
-	return tokenInfo, nil
+	// Find the token with matching address
+	for _, token := range tokens {
+		if token.Address == mint {
+			return token, nil
+		}
+	}
+
+	return TokenInfo{}, fmt.Errorf("token not found: %s", mint)
 }
 
-// Fetches token prices from Jupiter exchange
+// Fetches token prices from Jupiter exchange using quote API
 func fetchTokenPriceJupiter(mint string) (map[string]float64, error) {
-	var res *http.Response
-	var err error
-
-	// Get https data with retry
-	err = retryRPC(func() error {
-		res, err = http.Get("https://api.jup.ag/price/v2?ids=" + mint)
-		if err != nil {
-			return fmt.Errorf("failed to send HTTP request: %v", err)
-		}
-		// Check for non-200 status codes
-		if res.StatusCode != http.StatusOK {
-			return fmt.Errorf("%s", res.Status)
-		}
-		return nil
-	})
-	if err != nil {
-		return nil, err // Return the original error
-	}
-	defer res.Body.Close()
-
-	// Read the response body
-	body, err := io.ReadAll(res.Body)
-	if err != nil {
-		return nil, fmt.Errorf("failed to read response body: %v", err)
-	}
-
-	// Unmarshal the JSON response
-	var resp struct {
-		Data map[string]struct {
-			Price string `json:"price"`
-		} `json:"data"`
-	}
-	if err := json.Unmarshal(body, &resp); err != nil {
-		return nil, fmt.Errorf("failed to unmarshal JSON response: %v", err)
-	}
-
-	// Create a map to store the prices
 	prices := make(map[string]float64)
 
-	// Iterate through the response data and populate the map
-	for mintID, data := range resp.Data {
-		// Skip if the price is null or empty
-		if data.Price == "" || data.Price == "null" {
-			continue
-		}
-		price, err := strconv.ParseFloat(data.Price, 64)
+	// For SOL, we can get the price by quoting against USDC
+	if mint == SOL {
+		var res *http.Response
+		var err error
+
+		// Get quote for 1 SOL to USDC
+		err = retryRPC(func() error {
+			res, err = http.Get("https://quote-api.jup.ag/v6/quote?inputMint=" + SOL + "&outputMint=" + USDC + "&amount=1000000000")
+			if err != nil {
+				return fmt.Errorf("failed to send HTTP request: %v", err)
+			}
+			// Check for non-200 status codes
+			if res.StatusCode != http.StatusOK {
+				return fmt.Errorf("%s", res.Status)
+			}
+			return nil
+		})
 		if err != nil {
-			continue
+			return nil, err
 		}
-		prices[mintID] = price
+		defer res.Body.Close()
+
+		// Read the response body
+		body, err := io.ReadAll(res.Body)
+		if err != nil {
+			return nil, fmt.Errorf("failed to read response body: %v", err)
+		}
+
+		// Unmarshal the JSON response
+		var resp struct {
+			OutAmount string `json:"outAmount"`
+		}
+		if err := json.Unmarshal(body, &resp); err != nil {
+			return nil, fmt.Errorf("failed to unmarshal JSON response: %v", err)
+		}
+
+		// Convert outAmount to price (USDC has 6 decimals)
+		outAmount, err := strconv.ParseFloat(resp.OutAmount, 64)
+		if err != nil {
+			return nil, fmt.Errorf("failed to parse outAmount: %v", err)
+		}
+
+		// Price = outAmount / 10^6 (USDC decimals) / 1 SOL
+		price := outAmount / 1000000.0
+		prices[mint] = price
+	} else {
+		// For other tokens, try to get quote against USDC
+		var res *http.Response
+		var err error
+
+		// Get quote for 1 token to USDC (assuming 6 decimals for most tokens)
+		err = retryRPC(func() error {
+			res, err = http.Get("https://quote-api.jup.ag/v6/quote?inputMint=" + mint + "&outputMint=" + USDC + "&amount=1000000")
+			if err != nil {
+				return fmt.Errorf("failed to send HTTP request: %v", err)
+			}
+			// Check for non-200 status codes
+			if res.StatusCode != http.StatusOK {
+				return fmt.Errorf("%s", res.Status)
+			}
+			return nil
+		})
+		if err != nil {
+			return nil, err
+		}
+		defer res.Body.Close()
+
+		// Read the response body
+		body, err := io.ReadAll(res.Body)
+		if err != nil {
+			return nil, fmt.Errorf("failed to read response body: %v", err)
+		}
+
+		// Unmarshal the JSON response
+		var resp struct {
+			OutAmount string `json:"outAmount"`
+		}
+		if err := json.Unmarshal(body, &resp); err != nil {
+			return nil, fmt.Errorf("failed to unmarshal JSON response: %v", err)
+		}
+
+		// Convert outAmount to price (USDC has 6 decimals)
+		outAmount, err := strconv.ParseFloat(resp.OutAmount, 64)
+		if err != nil {
+			return nil, fmt.Errorf("failed to parse outAmount: %v", err)
+		}
+
+		// Price = outAmount / 10^6 (USDC decimals) / 1 token
+		price := outAmount / 1000000.0
+		prices[mint] = price
 	}
 
 	return prices, nil

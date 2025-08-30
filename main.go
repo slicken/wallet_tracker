@@ -117,15 +117,18 @@ Example:
 	if config.Network.CustomRPC != "" {
 		networkRPC = config.Network.CustomRPC
 	}
-	client = rpc.NewWithCustomRPCClient(rpc.NewWithLimiter(networkRPC, 10, 10))
+	// Use a more conservative rate limiter to avoid rate limiting
+	client = rpc.NewWithCustomRPCClient(rpc.NewWithLimiter(networkRPC, 5, 5))
 
-	// // Initialize wallet map
-	// for _, addr := range config.Monitor.Wallets {
-	// 	walletMap[addr] = &Wallet{
-	// 		PubKey: solana.MustPublicKeyFromBase58(addr),
-	// 		Token:  make(map[string]TokenInfo),
-	// 	}
-	// }
+	// Initialize wallet map
+	for _, addr := range config.Monitor.Wallets {
+		walletMap[addr] = &Wallet{
+			Name:   "", // Can be set later if needed
+			PubKey: solana.MustPublicKeyFromBase58(addr),
+			Token:  make(map[string]TokenInfo),
+			Skip:   make(map[string]TokenInfo),
+		}
+	}
 
 	// Load token data
 	if err := LoadWallets(); err != nil {
@@ -173,60 +176,55 @@ Example:
 		})
 		if err != nil {
 			log.Printf("Failed to connect to WebSocket: %v", err)
+			time.Sleep(5 * time.Second) // Wait before retrying
 			continue
 		}
 		defer wsClient.Close()
 
-		log.Printf("Established connection to %s.\n", rpc.MainNetBeta_WS)
+		log.Printf("Established connection to %s.\n", networkWS)
 
-		// Monitor transactions for each wallet
+		// Monitor transactions for each wallet sequentially to avoid overwhelming the connection
 		for _, wallet := range walletMap {
-			wg.Add(1)
-			go func(wallet *Wallet) {
-				defer wg.Done()
+			// Subscribe to log events that mention the wallet
+			var sub *ws.LogSubscription
+			err := retryRPC(func() error {
+				var err error
+				sub, err = wsClient.LogsSubscribeMentions(
+					wallet.PubKey,
+					rpc.CommitmentFinalized,
+				)
+				return err
+			})
+			if err != nil {
+				log.Printf("Failed to subscribe to logs for wallet %s: %v\n", wallet.PubKey.String()[:8], err)
+				time.Sleep(2 * time.Second) // Wait before retrying
+				continue
+			}
+			defer sub.Unsubscribe()
+			log.Printf("Subscribed to transaction logs for wallet account %s\n", wallet.PubKey.String())
 
-				for {
-					// Subscribe to log events that mention the wallet
-					var sub *ws.LogSubscription
-					err := retryRPC(func() error {
-						var err error
-						sub, err = wsClient.LogsSubscribeMentions(
-							wallet.PubKey,
-							rpc.CommitmentFinalized,
-						)
-						return err
-					})
-					if err != nil {
-						log.Printf("Failed to subscribe to logs for wallet: %v\n", err)
-						return
-					}
-					defer sub.Unsubscribe()
-					log.Printf("Subscribed to transaction logs for wallet account %s\n", wallet.PubKey.String())
-
-					for {
-						// Receive log notification
-						logs, err := sub.Recv(ctx)
-						if err != nil {
-							log.Printf("Failed to receive log notification: %v. Reconnecting...\n", err)
-							break // Exit inner loop to reconnect
-						}
-
-						// Skip if transaction failed
-						if logs.Value.Err != nil {
-							continue
-						}
-
-						// Extract the transaction signature from the logs
-						go processTransaction(ctx, client, wallet, logs.Value.Signature)
-					}
+			// Process messages for this wallet
+			for {
+				// Receive log notification
+				logs, err := sub.Recv(ctx)
+				if err != nil {
+					log.Printf("Failed to receive log notification for wallet %s: %v. Reconnecting...\n", wallet.PubKey.String()[:8], err)
+					break // Exit inner loop to reconnect
 				}
-			}(wallet)
-		}
 
-		wg.Wait()
+				// Skip if transaction failed
+				if logs.Value.Err != nil {
+					continue
+				}
+
+				// Extract the transaction signature from the logs
+				go processTransaction(ctx, client, wallet, logs.Value.Signature)
+			}
+		}
 
 		// If we reach here, the connection was lost, and we need to reconnect
 		log.Println("WebSocket connection lost. Reconnecting...")
+		time.Sleep(10 * time.Second) // Wait longer before reconnecting
 	}
 }
 
